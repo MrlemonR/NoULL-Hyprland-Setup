@@ -1,0 +1,57 @@
+#!/bin/bash
+# xdg-desktop-portal-hyprland icin picker sarmalayicisi.
+#
+# Sorun: Chromium (Electron/Vesktop) tek bir getDisplayMedia icin portal'a
+# iki kez basvuruyor. Ilk ScreenCast oturumunu secim yapildiktan hemen sonra
+# yok edip ("Session destroyed") sifirdan yeni bir oturum aciyor. Bu yuzden
+# ayni paylasim penceresi ust uste iki kez cikiyor; ikincisi kapatilirsa
+# yayin dusuyor.
+#
+# Cozum: gercek picker'da yapilan secimi kisa sureligine (TTL) onbellege al ve
+# hemen ardindan gelen tekrar isteklerini otomatik yanitla. Her secim en fazla
+# USES kez kullanilabilir ve hak bitince onbellek silinir; yani kullanicinin
+# yaptigi her secim basina sinirli sayida otomatik yanit verilir.
+#
+# Log: $XDG_RUNTIME_DIR/xdph-picker.log
+
+REAL=/usr/bin/hyprland-share-picker
+TTL=${XDPH_PICKER_TTL:-45}                 # saniye: secimin gecerli kalma suresi
+USES=${XDPH_PICKER_USES:-2}                # bir secimle en fazla kac tekrar istegi yanitlanir
+CACHE="${XDG_RUNTIME_DIR:-/tmp}/xdph-picker-once.cache"
+
+now=$(date +%s)
+LOG="${XDPH_PICKER_LOG:-${XDG_RUNTIME_DIR:-/tmp}/xdph-picker.log}"
+log() { [ -n "$LOG" ] && printf '%s %s\n' "$(date +%T.%3N)" "$*" >> "$LOG"; return 0; }
+log "cagrildi"
+
+# --- Onbellekte taze bir secim varsa onu kullan ve onbellegi tuket ---
+if [ -f "$CACHE" ]; then
+    read -r ts left sel < "$CACHE"
+    rm -f "$CACHE"
+    if [ -n "$sel" ] && [ "$left" -gt 0 ] && [ $((now - ts)) -lt "$TTL" ]; then
+        left=$((left - 1))
+        if [ "$left" -gt 0 ]; then
+            umask 077
+            printf '%s %s %s\n' "$ts" "$left" "$sel" > "$CACHE"
+        fi
+        log "ONBELLEKTEN otomatik yanit ($left hak kaldi): $sel"
+        printf '[SELECTION]%s\n' "$sel"
+        exit 0
+    fi
+fi
+
+# --- Aksi halde gercek picker'i goster ---
+log "gercek picker aciliyor"
+out=$("$REAL")
+rc=$?
+printf '%s\n' "$out"
+[ $rc -ne 0 ] && exit $rc
+
+# Secimi onbellege yaz (varsa)
+sel=$(printf '%s\n' "$out" | sed -n 's/^\[SELECTION\]//p' | tail -1)
+if [ -n "$sel" ]; then
+    umask 077
+    printf '%s %s %s\n' "$(date +%s)" "$USES" "$sel" > "$CACHE"
+    log "gercek secim onbellege alindi: $sel"
+fi
+exit 0

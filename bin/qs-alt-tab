@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+#
+# Alt+Tab pencere anahtarlayıcısının Hyprland köprüsü.
+#
+#   ALT + Tab              -> qs-alt-tab next
+#   ALT + SHIFT + Tab      -> qs-alt-tab prev
+#   ALT + Alt_L (release)  -> qs-alt-tab commit
+#
+# "commit" bind'i HER Alt bırakışında tetikleniyor (Alt+Space, uygulama
+# içi Alt kullanımı, ...). Anahtarlayıcı kapalıyken boşuna quickshell
+# süreci açmamak için açık/kapalı durumu burada bir bayrak dosyasında
+# tutuluyor — next/prev bayrağı koyuyor, commit kaldırıyor.
+#
+# Asıl "Alt bırakıldı" tespiti QML tarafında: panel açıkken katman yüzeyi
+# Exclusive klavye odağını tuttuğu için Key_Alt release olayı oraya
+# ulaşıyor ve geçiş anında yapılıyor. Buradaki commit yalnızca emniyet
+# kemeri; panel çoktan kapandıysa IPC çağrısı zararsız biçimde boşa gider.
+
+set -u
+
+FLAG="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/qs-switcher-open"
+
+case "${1:-}" in
+    next|prev)
+        : > "$FLAG"
+        exec qs -c topbar ipc call switcher "$1"
+        ;;
+    commit)
+        [[ -e "$FLAG" ]] || exit 0
+        rm -f "$FLAG"
+        exec qs -c topbar ipc call switcher commit
+        ;;
+    cancel)
+        rm -f "$FLAG"
+        exec qs -c topbar ipc call switcher cancel
+        ;;
+    *)
+        echo "kullanım: qs-alt-tab next|prev|commit|cancel" >&2
+        exit 1
+        ;;
+esac

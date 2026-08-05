@@ -12,3 +12,6 @@ require("config.misc")
 require("config.monitors")
 require("config.windowrules")
 require("config.keyring")
+-- EN SONDA: performans modu açıksa yukarıdaki değerleri eziyor.
+-- Böylece `hyprctl reload` modu iptal etmiyor. (bkz. qs-mode)
+require("config.perfmode")

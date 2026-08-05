@@ -185,7 +185,7 @@ Singleton {
     }
 
     Timer {
-        interval: 2000
+        interval: PerfMode.every(2000)
         running: true
         repeat: true
         onTriggered: root.refresh()

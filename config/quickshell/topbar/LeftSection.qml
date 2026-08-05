@@ -95,8 +95,10 @@ RowLayout {
             }
         }
 
+        // Odaklı pencere adı. Performans modunda saniyede 2 kez hyprctl
+        // açmanın anlamı yok, aralık uzuyor (bkz. PerfMode).
         Timer {
-            interval: 500
+            interval: PerfMode.every(500)
             running: true
             repeat: true
             triggeredOnStart: true
@@ -127,8 +129,10 @@ RowLayout {
             font.family: "runcat"
             text: catContainer.icons[catContainer.currentIconIndex]
         }
+        // Koşan kedi. Performans modunda yavaşlıyor ama durmuyor —
+        // durursa bar donmuş gibi görünüyor.
         Timer {
-            interval: 100
+            interval: PerfMode.every(100)
             running: true
             repeat: true
             onTriggered: {

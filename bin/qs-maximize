@@ -6,6 +6,11 @@
 # (gaps_in/gaps_out) ve kenarlığı sıfırlıyor, böylece kaç pencere varsa
 # hepsi birlikte ekranı doldurup aralarında boşluk kalmıyor. Bar yerinde
 # duruyor. Gerçek tam ekran Super+F, tek pencere maximize Super+F değil.
+#
+# DİKKAT: eskiden bunu hl.config({ general = ... }) ile GLOBAL yapıyordu,
+# yani bir workspace'te açınca bütün workspace'lerin boşlukları kapanıyordu.
+# Artık hl.workspace_rule ile yalnızca o an bulunulan workspace'e uygulanıyor;
+# kural anında etkili oluyor, hyprctl reload gerekmiyor.
 
 set -u
 
@@ -14,18 +19,36 @@ GAPS_IN=3
 GAPS_OUT=8
 BORDER=2
 
+RUNTIME="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+
+# Eski sürümden kalan global durum: bulursak global ayarları geri veriyoruz,
+# yoksa bu oturum boyunca bütün workspace'ler boşluksuz kalırdı.
+LEGACY="$RUNTIME/qs-maximize.on"
+if [[ -e "$LEGACY" ]]; then
+    rm -f "$LEGACY"
+    hyprctl eval "hl.config({ general = { gaps_in = $GAPS_IN, gaps_out = $GAPS_OUT, border_size = $BORDER } })" >/dev/null
+fi
+
+WS=$(hyprctl activeworkspace -j | python3 -c 'import json,sys; print(json.load(sys.stdin)["name"])')
+[[ -n "$WS" ]] || exit 0
+
+# "special:magic" gibi adlar dosya adına doğrudan girmesin
+SAFE=$(printf '%s' "$WS" | tr -c '[:alnum:]' '_')
+
 # DİKKAT: durumu pencereden okumak işe yaramıyor — boşluklar 0 olunca pencere
 # maximize olmadan da tam boyuta geliyor ve "fullscreen" alanı ile bizim
-# görsel durumumuz birbirinden kayıyor. Kendi durumumuzu tutuyoruz.
-STATE="${XDG_RUNTIME_DIR:-/run/user/1000}/qs-maximize.on"
-
+# görsel durumumuz birbirinden kayıyor. Kendi durumumuzu tutuyoruz, artık
+# workspace başına. (hyprctl workspacerules de işe yaramıyor: hl.workspace_rule
+# ile canlı eklenen kuralları listelemiyor, boş dönüyor.)
+STATE="$RUNTIME/qs-maximize.ws.$SAFE"
 
 if [[ -e "$STATE" ]]; then
     rm -f "$STATE"
-    "$HOME/.local/bin/qs-wallpaper-watch" --once 2>/dev/null || true
-    hyprctl eval "hl.config({ general = { gaps_in = $GAPS_IN, gaps_out = $GAPS_OUT, border_size = $BORDER } })" >/dev/null
+    IN=$GAPS_IN; OUT=$GAPS_OUT; BS=$BORDER
 else
-    touch "$STATE"
-    "$HOME/.local/bin/qs-wallpaper-watch" --once 2>/dev/null || true
-    hyprctl eval 'hl.config({ general = { gaps_in = 0, gaps_out = 0, border_size = 0 } })' >/dev/null
+    : > "$STATE"
+    IN=0; OUT=0; BS=0
 fi
+
+"$HOME/.local/bin/qs-wallpaper-watch" --once 2>/dev/null || true
+hyprctl eval "hl.workspace_rule({ workspace = \"$WS\", gaps_in = $IN, gaps_out = $OUT, border_size = $BS })" >/dev/null

@@ -1,0 +1,686 @@
+#!/usr/bin/env bash
+#
+# SDDM giriş ekranını temaya bağlar.
+#
+#   sudo qs-theme-sddm <tema>             -> temayı üretir ve SDDM'ye tanıtır
+#   sudo qs-theme-sddm                    -> etkin temayı kullanır
+#   qs-theme-sddm --dir DIR <tema>        -> başka bir dizine üretir (root gerekmez)
+#   sudo qs-theme-sddm --no-apply <tema>  -> üretir ama sddm.conf.d'ye dokunmaz
+#
+# Root gerekiyor: /usr/share/sddm/themes ve /etc/sddm.conf.d root'a ait.
+# qs-theme bunu normal kullanıcı olarak çağırınca uyarı basıp atlıyor.
+#
+# DİKKAT: greeter "sddm" kullanıcısı olarak çalışıyor ve /home/<kullanıcı>
+# dizinini okuyamıyor (0700). Bu yüzden font da duvar kağıdı da tema
+# dizininin İÇİNE kopyalanıyor, ev dizininden referans verilmiyor.
+#
+# Ürettikleri:
+#   Main.qml         arayüz (temadan temaya değişmiyor)
+#   theme.conf       palettes.json'dan gelen renkler — asıl değişen yer
+#   fonts/ui.ttf     JetBrainsMono Nerd Font (glifler güç düğmeleri için lazım)
+#   background.png   o temanın duvar kağıdından hafif bulanık zemin
+#   metadata.desktop SDDM'nin temayı tanıması için
+
+set -u
+
+THEME_NAME="lemonrice"
+DEST=""
+APPLY=1
+SDDM_CONF_DIR="/etc/sddm.conf.d"
+SCREEN_W=1920
+SCREEN_H=1080
+
+THEME=""
+while (( $# )); do
+    case "$1" in
+        --dir)      DEST="${2:-}"; shift 2 || exit 1 ;;
+        --no-apply) APPLY=0; shift ;;
+        -h|--help)  sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -*)         echo "qs-theme-sddm: bilinmeyen seçenek '$1'" >&2; exit 1 ;;
+        *)          THEME="$1"; shift ;;
+    esac
+done
+
+# sudo altında asıl kullanıcının ev dizini (bkz. qs-palette)
+user_home() {
+    if [[ -n "${SUDO_USER:-}" && $EUID -eq 0 ]]; then
+        eval echo "~$SUDO_USER"
+    else
+        echo "$HOME"
+    fi
+}
+UHOME="$(user_home)"
+BIN="$UHOME/.local/bin"
+
+[[ -x "$BIN/qs-palette" ]] || { echo "sddm: qs-palette bulunamadı, atlandı"; exit 0; }
+
+if [[ -z "$THEME" ]]; then
+    STATE="$UHOME/.config/quickshell/theme.txt"
+    THEME="$( [[ -r "$STATE" ]] && tr -d '[:space:]' < "$STATE" || echo catppuccin-mocha )"
+fi
+
+if ! eval "$("$BIN/qs-palette" env "$THEME" 2>/dev/null)"; then
+    echo "sddm: '$THEME' için palet yok, atlandı"; exit 0
+fi
+
+[[ -z "$DEST" ]] && DEST="/usr/share/sddm/themes/$THEME_NAME"
+
+need_root=0
+[[ "$DEST" == /usr/* ]] && need_root=1
+(( APPLY )) && need_root=1
+
+if (( need_root )) && [[ $EUID -ne 0 ]]; then
+    echo "sddm: root gerekiyor, atlandı  ->  sudo ~/.local/bin/qs-theme-sddm $THEME"
+    exit 0
+fi
+
+command -v magick >/dev/null 2>&1 || { echo "sddm: magick yok, atlandı"; exit 0; }
+
+mkdir -p "$DEST/fonts"
+
+# ============================================================
+# 1. Arayüz
+#
+# Main.qml renkleri theme.conf'tan okuyor, bu yüzden tema değişince bu
+# dosyanın değişmesi gerekmiyor — yine de her seferinde yazıyoruz ki
+# script güncellenince arayüz de güncellensin.
+# ============================================================
+
+cat > "$DEST/Main.qml" <<'LEMONRICE_QML_EOF'
+// LemonRice — SDDM teması
+// qs-theme-sddm tarafından kurulur. Renkler theme.conf'tan geliyor, o da
+// palettes.json'dan üretiliyor; bu dosya temadan temaya değişmiyor.
+//
+// DİKKAT: greeter "sddm" kullanıcısı olarak çalışıyor, ev dizinini okuyamıyor.
+// Font ve arka plan bu yüzden tema dizininin içinde duruyor.
+//
+// DİKKAT: userModel/sessionModel rollerine Qt.UserRole+N ile değil, delegate'te
+// "required property string name" ile erişiyoruz — rol numaraları sddm
+// sürümleri arasında kayabiliyor, rol adı kaymıyor.
+
+import QtQuick
+
+// Delegate'lerden dış kapsamdaki "root" id'sine erişebilmek için. Model
+// verisini zaten required property ile alıyoruz, pragma'nın şartı bu.
+pragma ComponentBehavior: Bound
+
+Item {
+    id: root
+    width: 1920
+    height: 1080
+
+    // ---------------- palet ----------------
+
+    readonly property color cBase:     config.base     || "#1e1e2e"
+    readonly property color cMantle:   config.mantle   || "#181825"
+    readonly property color cSurface0: config.surface0 || "#313244"
+    readonly property color cSurface1: config.surface1 || "#45475a"
+    readonly property color cOverlay:  config.overlay0 || "#6c7086"
+    readonly property color cSubtext:  config.subtext0 || "#a6adc8"
+    readonly property color cText:     config.text     || "#cdd6f4"
+    readonly property color cAccent:   config.accent   || "#cba6f7"
+    readonly property color cOnAccent: config.onAccent || "#11111b"
+    readonly property color cRed:      config.red      || "#f38ba8"
+
+    readonly property string uiFont: fontLoader.status === FontLoader.Ready
+                                     ? fontLoader.font.family : "monospace"
+
+    property int  sessionIndex: sessionModel.lastIndex
+    property int  userIndex:    userModel.lastIndex
+    property var  userNames:    []
+    property var  sessionNames: []
+    property string errorText: ""
+    property bool busy: false
+
+    readonly property string userName:
+        (userIndex >= 0 && userIndex < userNames.length)
+        ? userNames[userIndex] : (userModel.lastUser || "")
+
+    readonly property string sessionName:
+        (sessionIndex >= 0 && sessionIndex < sessionNames.length)
+        ? sessionNames[sessionIndex] : "oturum"
+
+    FontLoader { id: fontLoader; source: "fonts/ui.ttf" }
+
+    // Rol adlarını okuyup dizilere dolduran görünmez yoklayıcılar.
+    // Diziyi yerinde değiştirmek bağlamayı tetiklemediği için kopya atıyoruz.
+    Repeater {
+        model: userModel
+        delegate: Item {
+            required property int index
+            required property string name
+            Component.onCompleted: {
+                var a = root.userNames.slice(); a[index] = name; root.userNames = a
+            }
+        }
+    }
+
+    Repeater {
+        model: sessionModel
+        delegate: Item {
+            required property int index
+            required property string name
+            Component.onCompleted: {
+                var a = root.sessionNames.slice(); a[index] = name; root.sessionNames = a
+            }
+        }
+    }
+
+    function doLogin() {
+        if (root.busy || root.userName === "") return
+        root.errorText = ""
+        root.busy = true
+        sddm.login(root.userName, password.text, root.sessionIndex)
+    }
+
+    Connections {
+        target: sddm
+        function onLoginFailed() {
+            root.busy = false
+            root.errorText = "Şifre yanlış"
+            password.text = ""
+            password.forceActiveFocus()
+            shake.restart()
+        }
+        function onLoginSucceeded() { root.busy = false }
+    }
+
+    // ---------------- arka plan ----------------
+
+    Image {
+        anchors.fill: parent
+        source: "background.png"
+        fillMode: Image.PreserveAspectCrop
+        asynchronous: true
+        cache: true
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        color: root.cBase
+        opacity: 0.35
+    }
+
+    // ---------------- saat ----------------
+
+    Timer {
+        interval: 1000
+        running: true
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: {
+            var now = new Date()
+            clock.text = now.toLocaleTimeString(Qt.locale("tr_TR"), "HH:mm")
+            dateLabel.text = now.toLocaleDateString(Qt.locale("tr_TR"), "d MMMM dddd")
+        }
+    }
+
+    Column {
+        id: clockBlock
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.top: parent.top
+        anchors.topMargin: parent.height * 0.16
+        spacing: 4
+
+        Text {
+            id: clock
+            anchors.horizontalCenter: parent.horizontalCenter
+            font.family: root.uiFont
+            font.pixelSize: 92
+            font.weight: Font.Light
+            color: root.cText
+        }
+
+        Text {
+            id: dateLabel
+            anchors.horizontalCenter: parent.horizontalCenter
+            font.family: root.uiFont
+            font.pixelSize: 20
+            color: root.cSubtext
+        }
+    }
+
+    // ---------------- giriş kartı ----------------
+
+    Rectangle {
+        id: card
+        width: 420
+        height: 268
+        radius: 20
+        color: root.cMantle
+        opacity: 0.92
+        border.width: 1
+        border.color: root.cSurface0
+
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.top: clockBlock.bottom
+        anchors.topMargin: 72
+
+        transform: Translate { id: shakeT }
+
+        SequentialAnimation {
+            id: shake
+            loops: 2
+            NumberAnimation { target: shakeT; property: "x"; to:  10; duration: 45 }
+            NumberAnimation { target: shakeT; property: "x"; to: -10; duration: 45 }
+            NumberAnimation { target: shakeT; property: "x"; to:   0; duration: 45 }
+        }
+
+        Column {
+            anchors.centerIn: parent
+            width: parent.width - 56
+            spacing: 14
+
+            Rectangle {
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: 68; height: 68; radius: 34
+                color: root.cSurface0
+                border.width: 2
+                border.color: root.cAccent
+
+                Text {
+                    anchors.centerIn: parent
+                    text: ""                       // nf-fa-user
+                    font.family: root.uiFont
+                    font.pixelSize: 30
+                    color: root.cAccent
+                }
+
+                // birden fazla kullanıcı varsa tıklayınca sırayla geçiyor
+                MouseArea {
+                    anchors.fill: parent
+                    enabled: userModel.count > 1
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.userIndex = (root.userIndex + 1) % userModel.count
+                }
+            }
+
+            Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: root.userName
+                font.family: root.uiFont
+                font.pixelSize: 19
+                color: root.cText
+            }
+
+            Rectangle {
+                width: parent.width
+                height: 46
+                radius: 12
+                color: root.cSurface0
+                border.width: 1
+                border.color: password.activeFocus ? root.cAccent : root.cSurface1
+
+                Behavior on border.color { ColorAnimation { duration: 120 } }
+
+                TextInput {
+                    id: password
+                    anchors.fill: parent
+                    anchors.leftMargin: 16
+                    anchors.rightMargin: 46
+                    verticalAlignment: TextInput.AlignVCenter
+                    echoMode: TextInput.Password
+                    passwordCharacter: "•"
+                    passwordMaskDelay: 0
+                    font.family: root.uiFont
+                    font.pixelSize: 17
+                    color: root.cText
+                    selectionColor: root.cAccent
+                    selectedTextColor: root.cOnAccent
+                    focus: true
+                    enabled: !root.busy
+                    onAccepted: root.doLogin()
+
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: password.text.length === 0
+                        text: "şifre"
+                        font.family: root.uiFont
+                        font.pixelSize: 17
+                        color: root.cOverlay
+                    }
+                }
+
+                Rectangle {
+                    anchors.right: parent.right
+                    anchors.rightMargin: 6
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 34; height: 34; radius: 10
+                    color: loginArea.containsMouse ? root.cAccent : "transparent"
+
+                    Behavior on color { ColorAnimation { duration: 120 } }
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: ""                  // nf-fa-arrow_right
+                        font.family: root.uiFont
+                        font.pixelSize: 15
+                        color: loginArea.containsMouse ? root.cOnAccent : root.cOverlay
+                    }
+
+                    MouseArea {
+                        id: loginArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.doLogin()
+                    }
+                }
+            }
+
+            Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: root.errorText
+                visible: root.errorText.length > 0
+                font.family: root.uiFont
+                font.pixelSize: 14
+                color: root.cRed
+            }
+        }
+    }
+
+    // ---------------- oturum seçici ----------------
+
+    Item {
+        id: sessionPicker
+        anchors.left: parent.left
+        anchors.bottom: parent.bottom
+        anchors.margins: 32
+        width: sessionRow.width + 28
+        height: 40
+
+        Rectangle {
+            anchors.fill: parent
+            radius: 12
+            color: sessionArea.containsMouse ? root.cSurface0 : "transparent"
+            Behavior on color { ColorAnimation { duration: 120 } }
+        }
+
+        Row {
+            id: sessionRow
+            anchors.centerIn: parent
+            spacing: 10
+
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: ""                          // nf-fa-linux
+                font.family: root.uiFont
+                font.pixelSize: 15
+                color: root.cAccent
+            }
+
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: root.sessionName
+                font.family: root.uiFont
+                font.pixelSize: 15
+                color: root.cSubtext
+            }
+        }
+
+        MouseArea {
+            id: sessionArea
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: sessionList.visible = !sessionList.visible
+        }
+    }
+
+    Rectangle {
+        id: sessionList
+        visible: false
+        anchors.left: sessionPicker.left
+        anchors.bottom: sessionPicker.top
+        anchors.bottomMargin: 8
+        width: 280
+        height: Math.min(sessionModel.count, 6) * 40 + 12
+        radius: 14
+        color: root.cMantle
+        border.width: 1
+        border.color: root.cSurface0
+
+        ListView {
+            anchors.fill: parent
+            anchors.margins: 6
+            clip: true
+            model: sessionModel
+
+            delegate: Rectangle {
+                id: sessionItem
+                required property int index
+                required property string name
+
+                width: ListView.view.width
+                height: 40
+                radius: 10
+                color: itemArea.containsMouse ? root.cSurface0 : "transparent"
+
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.left: parent.left
+                    anchors.leftMargin: 12
+                    text: sessionItem.name
+                    font.family: root.uiFont
+                    font.pixelSize: 15
+                    color: sessionItem.index === root.sessionIndex ? root.cAccent : root.cSubtext
+                }
+
+                MouseArea {
+                    id: itemArea
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                        root.sessionIndex = sessionItem.index
+                        sessionList.visible = false
+                    }
+                }
+            }
+        }
+    }
+
+    // ---------------- klavye düzeni ----------------
+
+    Text {
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 44
+        text: (keyboard.layouts && keyboard.layouts[keyboard.currentLayout])
+              ? keyboard.layouts[keyboard.currentLayout].shortName.toUpperCase() : ""
+        font.family: root.uiFont
+        font.pixelSize: 14
+        color: root.cOverlay
+    }
+
+    // ---------------- güç düğmeleri ----------------
+
+    Row {
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.margins: 32
+        spacing: 6
+
+        Repeater {
+            model: [
+                { glyph: "", act: "suspend"  },   // ay
+                { glyph: "", act: "reboot"   },   // döngü
+                { glyph: "", act: "poweroff" }    // güç
+            ]
+
+            delegate: Rectangle {
+                id: pwrBtn
+                required property var modelData
+
+                width: 44; height: 44; radius: 12
+                color: btnArea.containsMouse ? root.cSurface0 : "transparent"
+
+                Behavior on color { ColorAnimation { duration: 120 } }
+
+                Text {
+                    anchors.centerIn: parent
+                    text: pwrBtn.modelData.glyph
+                    font.family: root.uiFont
+                    font.pixelSize: 17
+                    color: btnArea.containsMouse
+                           ? (pwrBtn.modelData.act === "poweroff" ? root.cRed : root.cAccent)
+                           : root.cOverlay
+                }
+
+                MouseArea {
+                    id: btnArea
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                        if (pwrBtn.modelData.act === "suspend") sddm.suspend()
+                        else if (pwrBtn.modelData.act === "reboot") sddm.reboot()
+                        else sddm.powerOff()
+                    }
+                }
+            }
+        }
+    }
+
+    Component.onCompleted: password.forceActiveFocus()
+}
+LEMONRICE_QML_EOF
+
+echo "sddm: Main.qml yazıldı"
+
+# ============================================================
+# 2. Renkler
+# ============================================================
+
+# DİKKAT: INI yorumu ";" ile başlamalı. Qt'nin QSettings parser'ı "#" ile
+# başlayan satırı yorum saymayıp dosyayı FormatError işaretliyor.
+cat > "$DEST/theme.conf" <<EOF
+; qs-theme tarafından üretildi — elle düzenlemeyin, sudo qs-theme-sddm <tema>
+[General]
+themeName=$THEME
+themeLabel=$LABEL
+
+base=$BASE
+mantle=$MANTLE
+crust=$CRUST
+surface0=$SURFACE0
+surface1=$SURFACE1
+overlay0=$OVERLAY0
+subtext0=$SUBTEXT0
+text=$TEXT
+accent=$MAUVE
+onAccent=$CRUST
+red=$RED
+EOF
+
+echo "sddm: theme.conf yazıldı ($THEME)"
+
+# ============================================================
+# 3. Font
+#
+# Greeter ev dizinini okuyamadığı için fontu tema dizinine kopyalıyoruz.
+# Nerd Font şart: güç düğmeleri ve kullanıcı ikonu glif olarak çiziliyor.
+# ============================================================
+
+FONT_SRC=""
+for candidate in \
+    "$UHOME/.local/share/fonts/JetBrains-Mono-Nerd-Font-Complete.ttf" \
+    "$UHOME/.local/share/fonts/Iosevka-Nerd-Font-Complete.ttf"
+do
+    [[ -r "$candidate" ]] && { FONT_SRC="$candidate"; break; }
+done
+
+if [[ -n "$FONT_SRC" ]]; then
+    install -m 644 "$FONT_SRC" "$DEST/fonts/ui.ttf"
+    echo "sddm: font kopyalandı ($(basename "$FONT_SRC"))"
+else
+    rm -f "$DEST/fonts/ui.ttf"
+    echo "sddm: Nerd Font bulunamadı — arayüz sistem fontuna düşecek, ikonlar kutu görünebilir"
+fi
+
+# ============================================================
+# 4. Arka plan
+#
+# GRUB'unkinden daha hafif bastırıyoruz: giriş kartı zaten kontrast
+# sağlıyor, duvar kağıdı görünsün istiyoruz.
+# ============================================================
+
+WALL_CONF="$UHOME/.config/quickshell/wallpapers.conf"
+SRC=""
+if [[ -r "$WALL_CONF" ]]; then
+    SRC="$(sed -nE "s|^[[:space:]]*${THEME}[[:space:]]*=[[:space:]]*(.+)$|\1|p" "$WALL_CONF" | tail -1)"
+fi
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+FRAME=""
+if [[ -n "$SRC" && -r "$SRC" ]]; then
+    case "${SRC,,}" in
+        *.mp4|*.mkv|*.webm|*.mov|*.gif)
+            if command -v ffmpeg >/dev/null 2>&1 \
+               && ffmpeg -y -loglevel error -ss 2 -i "$SRC" -frames:v 1 "$TMP/frame.png" 2>/dev/null \
+               && [[ -s "$TMP/frame.png" ]]; then
+                FRAME="$TMP/frame.png"
+            fi
+            ;;
+        *) FRAME="$SRC" ;;
+    esac
+fi
+
+if [[ -n "$FRAME" ]] && magick "$FRAME" \
+        -resize "${SCREEN_W}x${SCREEN_H}^" -gravity center -extent "${SCREEN_W}x${SCREEN_H}" \
+        -blur 0x12 -brightness-contrast -18x-8 \
+        -fill "$BASE" -colorize 22% \
+        -quality 92 "$DEST/background.png" 2>/dev/null
+then
+    echo "sddm: arka plan duvar kağıdından ($(basename "$FRAME"))"
+else
+    magick -size "${SCREEN_W}x${SCREEN_H}" \
+        radial-gradient:"$SURFACE0"-"$CRUST" "$DEST/background.png"
+    echo "sddm: arka plan paletten üretildi"
+fi
+
+# ============================================================
+# 5. metadata.desktop
+# ============================================================
+
+cat > "$DEST/metadata.desktop" <<EOF
+[SddmGreeterTheme]
+Name=LemonRice
+Description=LemonRice — quickshell rice ile aynı palet ($LABEL)
+Author=LemonRice
+License=MIT
+Type=sddm-theme
+Version=1.0
+Screenshot=preview.png
+MainScript=Main.qml
+ConfigFile=theme.conf
+QtVersion=6
+EOF
+
+# Greeter "sddm" kullanıcısı — her şey herkesçe okunabilir olmalı
+chmod 755 "$DEST" "$DEST/fonts"
+find "$DEST" -type f -exec chmod 644 {} +
+
+echo "sddm: metadata.desktop yazıldı"
+
+# ============================================================
+# 6. SDDM'ye tanıt
+# ============================================================
+
+if (( ! APPLY )); then
+    echo "sddm: --no-apply, sddm.conf.d'ye dokunulmadı"
+    exit 0
+fi
+
+mkdir -p "$SDDM_CONF_DIR"
+cat > "$SDDM_CONF_DIR/10-lemonrice.conf" <<EOF
+# qs-theme tarafından üretildi — elle düzenlemeyin
+[Theme]
+Current=$THEME_NAME
+EOF
+chmod 644 "$SDDM_CONF_DIR/10-lemonrice.conf"
+
+echo "sddm: $SDDM_CONF_DIR/10-lemonrice.conf yazıldı"
+echo "sddm: $THEME uygulandı (bir sonraki oturum açma ekranında geçerli)"

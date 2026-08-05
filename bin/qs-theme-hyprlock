@@ -1,0 +1,324 @@
+#!/usr/bin/env bash
+#
+# Kilit ekranını (hyprlock) temaya bağlar.
+#
+#   qs-theme-hyprlock <tema>        -> hyprlock.conf'u o temayla üretir
+#   qs-theme-hyprlock               -> etkin temayı kullanır
+#   qs-theme-hyprlock --dir DIR     -> başka bir dizine üretir (denemek için)
+#
+# Root gerekmiyor: her şey $HOME içinde. Super+L zaten hyprlock'u çağırıyor
+# (config/keybinds.lua), burada sadece görünümü üretiyoruz.
+#
+# Ürettikleri (hepsi ~/.config/hypr içinde):
+#   hyprlock.conf        yerleşim + palettes.json'dan gelen renkler
+#   hyprlock-bg.png      o temanın duvar kağıdı (video ise ffmpeg'le tek kare)
+#                        — bulanıklığı hyprlock kendisi uyguluyor, GPU'da
+#   hyprlock-avatar.png  Nerd Font glifinden yuvarlak kullanıcı ikonu
+#   hyprlock-date.sh     Türkçe tarih (glibc'de tr_TR locale üretilmemiş)
+
+set -u
+
+DEST=""
+THEME=""
+SCREEN_W=1920
+SCREEN_H=1080
+
+while (( $# )); do
+    case "$1" in
+        --dir)     DEST="${2:-}"; shift 2 || exit 1 ;;
+        -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -*)        echo "qs-theme-hyprlock: bilinmeyen seçenek '$1'" >&2; exit 1 ;;
+        *)         THEME="$1"; shift ;;
+    esac
+done
+
+BIN="$HOME/.local/bin"
+[[ -x "$BIN/qs-palette" ]] || { echo "hyprlock: qs-palette bulunamadı, atlandı"; exit 0; }
+
+if [[ -z "$THEME" ]]; then
+    STATE="$HOME/.config/quickshell/theme.txt"
+    THEME="$( [[ -r "$STATE" ]] && tr -d '[:space:]' < "$STATE" || echo catppuccin-mocha )"
+fi
+
+if ! eval "$("$BIN/qs-palette" env "$THEME" 2>/dev/null)"; then
+    echo "hyprlock: '$THEME' için palet yok, atlandı"; exit 0
+fi
+
+[[ -z "$DEST" ]] && DEST="$HOME/.config/hypr"
+
+if ! command -v hyprlock >/dev/null 2>&1; then
+    echo "hyprlock: kurulu değil, atlandı (pacman -S hyprlock)"
+    exit 0
+fi
+
+mkdir -p "$DEST"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+# hyprlock renkleri rgb(rrggbb) / rgba(rrggbbaa) istiyor, palet ise #rrggbb
+rgb()  { printf 'rgb(%s)' "${1#\#}"; }
+rgba() { printf 'rgba(%s%s)' "${1#\#}" "$2"; }
+
+ACCENT="$MAUVE"
+
+# ============================================================
+# 1. Arka plan
+#
+# Bulanıklığı hyprlock GPU'da yapıyor, biz sadece kaynağı hazırlıyoruz:
+# animasyonlu duvar kağıdından tek kare, yoksa paletten degrade.
+# ============================================================
+
+WALL_CONF="$HOME/.config/quickshell/wallpapers.conf"
+SRC=""
+if [[ -r "$WALL_CONF" ]]; then
+    SRC="$(sed -nE "s|^[[:space:]]*${THEME}[[:space:]]*=[[:space:]]*(.+)$|\1|p" "$WALL_CONF" | tail -1)"
+fi
+
+FRAME=""
+if [[ -n "$SRC" && -r "$SRC" ]]; then
+    case "${SRC,,}" in
+        *.mp4|*.mkv|*.webm|*.mov|*.gif)
+            if command -v ffmpeg >/dev/null 2>&1 \
+               && ffmpeg -y -loglevel error -ss 2 -i "$SRC" -frames:v 1 "$TMP/frame.png" 2>/dev/null \
+               && [[ -s "$TMP/frame.png" ]]; then
+                FRAME="$TMP/frame.png"
+            fi
+            ;;
+        *) FRAME="$SRC" ;;
+    esac
+fi
+
+BG="$DEST/hyprlock-bg.png"
+if [[ -n "$FRAME" ]] && command -v magick >/dev/null 2>&1 \
+   && magick "$FRAME" -resize "${SCREEN_W}x${SCREEN_H}^" \
+        -gravity center -extent "${SCREEN_W}x${SCREEN_H}" \
+        -fill "$BASE" -colorize 18% "$BG" 2>/dev/null
+then
+    echo "hyprlock: arka plan duvar kağıdından ($(basename "$FRAME"))"
+elif command -v magick >/dev/null 2>&1; then
+    magick -size "${SCREEN_W}x${SCREEN_H}" radial-gradient:"$SURFACE0"-"$CRUST" "$BG"
+    echo "hyprlock: arka plan paletten üretildi"
+else
+    BG=""
+    echo "hyprlock: magick yok, arka plan düz renk olacak"
+fi
+
+# ============================================================
+# 2. Avatar
+# ============================================================
+
+FONT_TTF=""
+for c in "$HOME/.local/share/fonts/JetBrains-Mono-Nerd-Font-Complete.ttf" \
+         "$HOME/.local/share/fonts/Iosevka-Nerd-Font-Complete.ttf"; do
+    [[ -r "$c" ]] && { FONT_TTF="$c"; break; }
+done
+
+AVATAR="$DEST/hyprlock-avatar.png"
+if [[ -n "$FONT_TTF" ]] && command -v magick >/dev/null 2>&1; then
+    # daire zemin + ortada nf-fa-user glifi
+    magick -size 220x220 xc:none \
+        -fill "$SURFACE0" -draw "circle 110,110 110,4" \
+        \( -background none -fill "$ACCENT" -font "$FONT_TTF" -pointsize 110 \
+           label:"$(printf '')" -trim +repage \) \
+        -gravity center -composite \
+        "$AVATAR" 2>/dev/null && echo "hyprlock: avatar üretildi"
+else
+    rm -f "$AVATAR"; AVATAR=""
+fi
+
+# ============================================================
+# 3. Türkçe tarih
+#
+# glibc'de tr_TR locale üretilmemiş, "date" Türkçe ay/gün basamıyor.
+# Locale kurdurmak yerine küçük bir yardımcı bırakıyoruz.
+# ============================================================
+
+DATESH="$DEST/hyprlock-date.sh"
+cat > "$DATESH" <<'EOF'
+#!/usr/bin/env bash
+# qs-theme tarafından üretildi — hyprlock'un tarih etiketi için.
+# tr_TR locale'i olmadan Türkçe tarih basar.
+aylar=(Ocak Şubat Mart Nisan Mayıs Haziran Temmuz Ağustos Eylül Ekim Kasım Aralık)
+gunler=(Pazar Pazartesi Salı Çarşamba Perşembe Cuma Cumartesi)
+printf '%s %s %s\n' "$(date +%-d)" "${aylar[10#$(date +%m) - 1]}" "${gunler[10#$(date +%w)]}"
+EOF
+chmod +x "$DATESH"
+
+# ============================================================
+# 4. hyprlock.conf
+# ============================================================
+
+FONT_NAME="JetBrainsMono Nerd Font"
+[[ "$FONT_TTF" == *Iosevka* ]] && FONT_NAME="Iosevka Nerd Font"
+[[ -z "$FONT_TTF" ]] && FONT_NAME="monospace"
+
+# Klavye düzeni etiketi.
+#
+# DİKKAT: düz "$LAYOUT" uzun ad basıyor ("English (US)"). Köşeli parantezli
+# biçim kısaltıyor ama içindekiler input.lua'daki kb_layout ile BİREBİR
+# eşleşmek zorunda — eşleşmezse (örn. "US,TR" yazınca) hyprlock config'i
+# okurken sessizce ölüyor ve Super+L hiçbir şey yapmıyor. O yüzden listeyi
+# uydurmuyoruz, input.lua'dan okuyoruz; bulamazsak uzun ada düşüyoruz.
+LAYOUT_TEXT='$LAYOUT'
+KB="$(sed -nE 's/.*kb_layout[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' \
+        "$HOME/.config/hypr/config/input.lua" 2>/dev/null | head -1)"
+KB="${KB// /}"
+if [[ "$KB" =~ ^[a-z,]+$ ]]; then
+    LAYOUT_TEXT="\$LAYOUT[$KB]"
+    echo "hyprlock: klavye düzeni etiketi kb_layout'tan ($KB)"
+else
+    echo "hyprlock: kb_layout okunamadı, uzun düzen adı kullanılacak"
+fi
+
+{
+cat <<EOF
+# qs-theme tarafından üretildi — elle düzenlemeyin, qs-theme-hyprlock <tema>
+# tema: $THEME ($LABEL)
+
+\$font = $FONT_NAME
+
+general {
+    hide_cursor = true
+    ignore_empty_input = true
+    text_trim = true
+}
+
+animations {
+    enabled = true
+    bezier = smooth, 0.25, 1, 0.5, 1
+    animation = fadeIn, 1, 4, smooth
+    animation = fadeOut, 1, 4, smooth
+    animation = inputFieldDots, 1, 2, linear
+}
+
+background {
+    monitor =
+EOF
+
+if [[ -n "$BG" ]]; then
+    echo "    path = $BG"
+else
+    echo "    path ="
+    echo "    color = $(rgb "$BASE")"
+fi
+
+cat <<EOF
+    blur_passes = 3
+    blur_size = 6
+    brightness = 0.55
+    contrast = 0.90
+    vibrancy = 0.15
+    noise = 0.012
+}
+
+# ---------------- saat ----------------
+
+label {
+    monitor =
+    text = \$TIME
+    color = $(rgb "$TEXT")
+    font_size = 96
+    font_family = \$font
+    shadow_passes = 2
+    shadow_size = 4
+    shadow_color = $(rgba "$CRUST" "99")
+
+    position = 0, 250
+    halign = center
+    valign = center
+}
+
+label {
+    monitor =
+    text = cmd[update:60000] $DATESH
+    color = $(rgb "$SUBTEXT0")
+    font_size = 20
+    font_family = \$font
+
+    position = 0, 172
+    halign = center
+    valign = center
+}
+EOF
+
+if [[ -n "$AVATAR" ]]; then
+cat <<EOF
+
+# ---------------- avatar ----------------
+
+image {
+    monitor =
+    path = $AVATAR
+    size = 110
+    rounding = -1
+    border_size = 2
+    border_color = $(rgb "$ACCENT")
+
+    position = 0, 40
+    halign = center
+    valign = center
+}
+EOF
+fi
+
+cat <<EOF
+
+# ---------------- kullanıcı + şifre ----------------
+
+label {
+    monitor =
+    text = \$USER
+    color = $(rgb "$TEXT")
+    font_size = 18
+    font_family = \$font
+
+    position = 0, -50
+    halign = center
+    valign = center
+}
+
+input-field {
+    monitor =
+    size = 330, 50
+    outline_thickness = 1
+    rounding = 12
+
+    inner_color = $(rgba "$SURFACE0" "e6")
+    outer_color = $(rgb "$SURFACE1")
+    check_color = $(rgb "$YELLOW")
+    fail_color  = $(rgb "$RED")
+    font_color  = $(rgb "$TEXT")
+    capslock_color = $(rgb "$PEACH")
+
+    font_family = \$font
+    placeholder_text = <span foreground="##${OVERLAY0#\#}">şifre</span>
+    fail_text = <span foreground="##${RED#\#}">Şifre yanlış</span>
+    check_text = Kontrol ediliyor...
+
+    dots_size = 0.28
+    dots_spacing = 0.35
+    dots_center = true
+    fade_on_empty = false
+
+    position = 0, -125
+    halign = center
+    valign = center
+}
+
+# ---------------- alt ipucu ----------------
+
+label {
+    monitor =
+    text = $LAYOUT_TEXT
+    color = $(rgb "$OVERLAY0")
+    font_size = 14
+    font_family = \$font
+
+    position = 0, 40
+    halign = center
+    valign = bottom
+}
+EOF
+} > "$DEST/hyprlock.conf"
+
+echo "hyprlock: hyprlock.conf yazıldı ($THEME) -> $DEST"

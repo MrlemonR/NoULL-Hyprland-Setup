@@ -29,7 +29,7 @@ Item {
     implicitHeight: 22
 
     Timer {
-        interval: 3000
+        interval: PerfMode.every(3000)
         running: true
         repeat: true
         onTriggered: Hyprland.refreshToplevels()
@@ -84,72 +84,11 @@ Item {
         }
     }
 
-    // İkon adını gerçek bir dosya yoluna çevir (IconResolver üzerinden)
-    function iconFor(entry) {
-        if (!entry || !entry.icon || entry.icon.length === 0)
-            return ""
-        return IconResolver.iconFor(entry.icon)
-    }
-
+    // appId -> ikon yolu. Eşleştirme mantığı IconResolver'da (Alt+Tab
+    // anahtarlayıcısı da aynı işlevi kullanıyor). Bulunamazsa "" döner ve
+    // delegate harf döşemesi çiziyor.
     function resolveIcon(appId) {
-        // DİKKAT: bu okuma bilinçli. DesktopEntries açılışta boş geliyor ve
-        // sonradan doluyor; burada okuyunca binding veritabanı yüklendiğinde
-        // kendini yeniden hesaplıyor. Yoksa erken çözülen ikonlar (Claude gibi)
-        // sonsuza kadar boş kalıyor.
-        const apps = DesktopEntries.applications.values
-
-        if (!appId || appId.length === 0)
-            return ""
-
-        if (apps.length === 0)
-            return ""
-
-        const lower = appId.toLowerCase()
-        const lastSegment = appId.includes(".") ? appId.split(".").pop().toLowerCase() : lower
-
-        // 1) StartupWMClass tam eşleşmesi — Hyprland'in verdiği appId ile
-        //    .desktop dosyasını eşleştirmenin doğru yolu bu
-        for (let i = 0; i < apps.length; i++) {
-            const e = apps[i]
-            if (e.startupClass && e.startupClass.toLowerCase() === lower) {
-                const icon = root.iconFor(e)
-                if (icon.length > 0)
-                    return icon
-            }
-        }
-
-        // 2) .desktop kimliği / adı tam eşleşmesi
-        for (let i = 0; i < apps.length; i++) {
-            const e = apps[i]
-            const id = (e.id || "").toLowerCase().replace(/\.desktop$/, "")
-            const name = (e.name || "").toLowerCase()
-            if (id === lower || name === lower || id === lastSegment) {
-                const icon = root.iconFor(e)
-                if (icon.length > 0)
-                    return icon
-            }
-        }
-
-        // 3) appId'nin kendisi bir ikon adı olabilir
-        const candidates = [appId, lower, lastSegment]
-        for (let i = 0; i < candidates.length; i++) {
-            const path = IconResolver.iconFor(candidates[i])
-            if (path.length > 0)
-                return path
-        }
-
-        // 4) Son çare: uygulama adı appId içinde geçiyor mu
-        for (let i = 0; i < apps.length; i++) {
-            const e = apps[i]
-            if (e.name && e.name.length > 2 && lower.includes(e.name.toLowerCase())) {
-                const icon = root.iconFor(e)
-                if (icon.length > 0)
-                    return icon
-            }
-        }
-
-        // Bulunamadı: delegate harf döşemesi çiziyor
-        return ""
+        return IconResolver.iconForApp(appId)
     }
 
     function groupToplevels(list) {

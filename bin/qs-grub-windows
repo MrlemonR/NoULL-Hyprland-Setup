@@ -1,0 +1,196 @@
+#!/usr/bin/env bash
+#
+# GRUB menüsüne Windows Boot Manager girdisi ekler.
+#
+#   sudo qs-grub-windows              -> ESP'yi bulur, girdiyi ekler, grub.cfg üretir
+#   sudo qs-grub-windows --uuid XXXX  -> ESP'yi kendin seç (FAT UUID)
+#   sudo qs-grub-windows --remove     -> girdiyi kaldırır
+#   qs-grub-windows --check           -> adayları listeler, hiçbir şeye dokunmaz
+#
+# Neden os-prober değil:
+#   os-prober ek paket istiyor, GRUB_DISABLE_OS_PROBER'ı açmayı gerektiriyor ve
+#   her grub-mkconfig'de bütün diskleri tarıyor. Windows burada Arch ile aynı
+#   ESP'de duruyor; doğrudan chainloader girdisi hem daha hızlı hem de
+#   bootmgfw.efi yerinde durduğu sürece bozulmuyor.
+#
+# DİKKAT: makinede birden fazla EFI bölümü olabiliyor — bu makinede USB'ye
+# takılı eski bir disk de kendi ESP'siyle geliyor. Onu seçersek disk çıkınca
+# menüdeki Windows girdisi ölür. Bu yüzden adayları puanlıyoruz: sistemin
+# kendi ESP'si (GRUB'un da durduğu /boot) > kök disk > sabit disk > gerisi.
+#
+# Girdi kendi dosyasında duruyor: /etc/grub.d/35_lemonrice-windows
+
+set -u
+
+ENTRY_FILE="/etc/grub.d/35_lemonrice-windows"
+ESP_GUID="c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
+WIN_EFI="/EFI/Microsoft/Boot/bootmgfw.efi"
+
+MODE="install"
+WANT_UUID=""
+while (( $# )); do
+    case "$1" in
+        --remove) MODE="remove"; shift ;;
+        --check)  MODE="check"; shift ;;
+        --uuid)   WANT_UUID="${2:-}"; shift 2 || exit 1 ;;
+        -h|--help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "qs-grub-windows: bilinmeyen seçenek '$1'" >&2; exit 1 ;;
+    esac
+done
+
+if [[ "$MODE" != "check" && $EUID -ne 0 ]]; then
+    echo "windows: root gerekiyor  ->  sudo ~/.local/bin/qs-grub-windows" >&2
+    exit 1
+fi
+
+# ============================================================
+# Kaldırma
+# ============================================================
+
+if [[ "$MODE" == "remove" ]]; then
+    if [[ -e "$ENTRY_FILE" ]]; then
+        rm -f "$ENTRY_FILE"
+        echo "windows: $ENTRY_FILE silindi"
+        grub-mkconfig -o /boot/grub/grub.cfg 2>&1 | sed 's/^/windows|  /'
+    else
+        echo "windows: girdi zaten yok"
+    fi
+    exit 0
+fi
+
+# ============================================================
+# Adayları topla
+# ============================================================
+
+ROOT_SRC="$(findmnt -no SOURCE / 2>/dev/null)"
+ROOT_DISK="$(lsblk -no PKNAME "$ROOT_SRC" 2>/dev/null | head -1)"
+
+TMPMNT=""
+cleanup() { [[ -n "$TMPMNT" ]] && { umount "$TMPMNT" 2>/dev/null; rmdir "$TMPMNT" 2>/dev/null; TMPMNT=""; }; }
+trap cleanup EXIT
+
+declare -a CAND_UUID=() CAND_DEV=() CAND_SCORE=() CAND_WHY=()
+
+# DİKKAT: "lsblk -r" boş alanları ardışık boşlukla basıyor, read bunları tek
+# ayırıcıya indirip alanları kaydırıyor. PATH="..." veren -P ile okuyoruz.
+while read -r line; do
+    PATH_= ; PARTTYPE= ; FSTYPE= ; UUID= ; MOUNTPOINT= ; PKNAME= ; HOTPLUG=
+    eval "$(echo "$line" | sed 's/^PATH=/PATH_=/')"
+
+    [[ "${PARTTYPE,,}" == "$ESP_GUID" ]] || continue
+    [[ "$FSTYPE" == "vfat" ]] || continue
+    [[ -n "$UUID" ]] || continue
+
+    probe="$MOUNTPOINT"
+    if [[ -z "$probe" ]]; then
+        [[ $EUID -eq 0 ]] || continue         # --check normal kullanıcıyla bağlayamaz
+        TMPMNT="$(mktemp -d)"
+        if ! mount -o ro "$PATH_" "$TMPMNT" 2>/dev/null; then
+            rmdir "$TMPMNT"; TMPMNT=""; continue
+        fi
+        probe="$TMPMNT"
+    fi
+
+    if find "$probe" -maxdepth 4 -ipath "*${WIN_EFI}" -print -quit 2>/dev/null | grep -q .; then
+        score=0; why=""
+        case "$MOUNTPOINT" in
+            /boot|/boot/efi|/efi) score=$((score + 100)); why="sistem ESP'si ($MOUNTPOINT)" ;;
+        esac
+        if [[ -n "$ROOT_DISK" && "$PKNAME" == "$ROOT_DISK" ]]; then
+            score=$((score + 50)); why="${why:+$why, }kök diskle aynı ($PKNAME)"
+        fi
+        if [[ "$HOTPLUG" == "0" ]]; then
+            score=$((score + 20)); why="${why:+$why, }sabit disk"
+        else
+            why="${why:+$why, }ÇIKARILABİLİR"
+        fi
+        CAND_UUID+=("$UUID"); CAND_DEV+=("$PATH_")
+        CAND_SCORE+=("$score"); CAND_WHY+=("$why")
+    fi
+
+    cleanup
+done < <(lsblk -Pno PATH,PARTTYPE,FSTYPE,UUID,MOUNTPOINT,PKNAME,HOTPLUG 2>/dev/null)
+
+if (( ${#CAND_UUID[@]} == 0 )); then
+    echo "windows: hiçbir EFI bölümünde $WIN_EFI bulunamadı." >&2
+    if [[ $EUID -ne 0 ]]; then
+        echo "         (bağlı olmayan ESP'lere bakmak için: sudo qs-grub-windows --check)" >&2
+    fi
+    exit 1
+fi
+
+# ============================================================
+# En iyi adayı seç
+# ============================================================
+
+best=0
+for i in "${!CAND_UUID[@]}"; do
+    (( CAND_SCORE[i] > CAND_SCORE[best] )) && best=$i
+done
+
+if [[ -n "$WANT_UUID" ]]; then
+    best=-1
+    for i in "${!CAND_UUID[@]}"; do
+        [[ "${CAND_UUID[i],,}" == "${WANT_UUID,,}" ]] && best=$i
+    done
+    if (( best < 0 )); then
+        echo "windows: --uuid $WANT_UUID adaylar arasında yok" >&2
+        exit 1
+    fi
+fi
+
+echo "windows: $(( ${#CAND_UUID[@]} )) aday bulundu:"
+for i in "${!CAND_UUID[@]}"; do
+    mark="  "; (( i == best )) && mark="->"
+    printf '  %s %s  UUID=%-10s  [%s]\n' "$mark" "${CAND_DEV[i]}" "${CAND_UUID[i]}" "${CAND_WHY[i]}"
+done
+
+FOUND_UUID="${CAND_UUID[best]}"
+FOUND_DEV="${CAND_DEV[best]}"
+
+if [[ "${CAND_WHY[best]}" == *ÇIKARILABİLİR* ]]; then
+    echo "windows: UYARI — seçilen ESP çıkarılabilir bir diskte. Disk takılı"
+    echo "         değilken bu girdi çalışmaz. Başkasını seçmek için --uuid kullan."
+fi
+
+if [[ "$MODE" == "check" ]]; then
+    echo "windows: --check, hiçbir şey değiştirilmedi"
+    exit 0
+fi
+
+# ============================================================
+# Girdiyi yaz
+# ============================================================
+
+cat > "$ENTRY_FILE" <<EOF
+#!/bin/sh
+# qs-grub-windows tarafından üretildi — elle düzenlemeyin.
+# Kaldırmak için: sudo ~/.local/bin/qs-grub-windows --remove
+# Kaynak: $FOUND_DEV
+cat <<'MENUENTRY'
+menuentry "Windows Boot Manager" --class windows --class os --id lemonrice-windows {
+    insmod part_gpt
+    insmod fat
+    insmod chain
+    search --no-floppy --fs-uuid --set=root $FOUND_UUID
+    chainloader $WIN_EFI
+}
+MENUENTRY
+EOF
+
+chmod 755 "$ENTRY_FILE"
+echo "windows: $ENTRY_FILE yazıldı (UUID $FOUND_UUID)"
+
+# Ürettiği şey gerçekten çalışıyor mu — grub-mkconfig'den önce görelim
+if ! sh "$ENTRY_FILE" >/dev/null 2>&1; then
+    echo "windows: girdi dosyası çalışmadı, geri alınıyor" >&2
+    rm -f "$ENTRY_FILE"
+    exit 1
+fi
+
+if grub-mkconfig -o /boot/grub/grub.cfg 2>&1 | sed 's/^/windows|  /'; then
+    echo "windows: grub.cfg yeniden üretildi — menüde 'Windows Boot Manager' görünecek"
+else
+    echo "windows: grub-mkconfig başarısız" >&2
+    exit 1
+fi

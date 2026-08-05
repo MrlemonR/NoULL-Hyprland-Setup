@@ -1,0 +1,451 @@
+#!/usr/bin/env bash
+#
+# GRUB önyükleme menüsünü temaya bağlar.
+#
+#   sudo qs-theme-grub <tema>             -> temayı üretir ve /boot'a kurar
+#   sudo qs-theme-grub                    -> etkin temayı kullanır
+#   qs-theme-grub --dir DIR <tema>        -> başka bir dizine üretir (root gerekmez)
+#   sudo qs-theme-grub --no-apply <tema>  -> üretir ama grub.cfg'yi yeniden yazmaz
+#
+# Root gerekiyor: /boot/grub/themes ve /etc/default/grub root'a ait. qs-theme
+# bunu normal kullanıcı olarak çağırınca uyarı basıp atlıyor — tıpkı
+# qs-ytmd-titlebar gibi ayrıca "sudo" ile çalıştırmak gerekiyor.
+#
+# Hepsi palettes.json'daki renklerden üretiliyor, depoda durmuyor:
+#   theme.txt        menü yerleşimi + renkler
+#   *.pf2            JetBrainsMono'dan grub-mkfont ile (00_header kendisi yüklüyor)
+#   select_*.png     seçili satırın yuvarlak vurgusu (9 parçalı kutu)
+#   menu_*.png       menü panelinin yarı saydam zemini
+#   term_*.png       "c" konsolunun kutusu
+#   prog_*.png       zaman aşımı çubuğu
+#   icons/*.png      Nerd Font glifinden arch / windows / linux ikonları
+#   background.png   o temanın duvar kağıdından bulanıklaştırılmış zemin
+
+set -u
+
+THEME_NAME="lemonrice"
+DEST=""
+APPLY=1
+GRUB_DEFAULT_FILE="/etc/default/grub"
+SCREEN_W=1920
+SCREEN_H=1080
+
+# ============================================================
+# Argümanlar
+# ============================================================
+
+THEME=""
+while (( $# )); do
+    case "$1" in
+        --dir)      DEST="${2:-}"; shift 2 || exit 1 ;;
+        --no-apply) APPLY=0; shift ;;
+        -h|--help)  sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -*)         echo "qs-theme-grub: bilinmeyen seçenek '$1'" >&2; exit 1 ;;
+        *)          THEME="$1"; shift ;;
+    esac
+done
+
+# ============================================================
+# sudo altında asıl kullanıcının ev dizini (bkz. qs-palette)
+# ============================================================
+
+user_home() {
+    if [[ -n "${SUDO_USER:-}" && $EUID -eq 0 ]]; then
+        eval echo "~$SUDO_USER"
+    else
+        echo "$HOME"
+    fi
+}
+UHOME="$(user_home)"
+BIN="$UHOME/.local/bin"
+
+[[ -x "$BIN/qs-palette" ]] || { echo "grub: qs-palette bulunamadı, atlandı"; exit 0; }
+
+# Tema verilmediyse etkin temayı al
+if [[ -z "$THEME" ]]; then
+    STATE="$UHOME/.config/quickshell/theme.txt"
+    THEME="$( [[ -r "$STATE" ]] && tr -d '[:space:]' < "$STATE" || echo catppuccin-mocha )"
+fi
+
+# Renkler tek kaynaktan (bkz. qs-palette)
+if ! eval "$("$BIN/qs-palette" env "$THEME" 2>/dev/null)"; then
+    echo "grub: '$THEME' için palet yok, atlandı"; exit 0
+fi
+
+[[ -z "$DEST" ]] && DEST="/boot/grub/themes/$THEME_NAME"
+
+# ============================================================
+# Yetki ve araç kontrolü — eksikse kırmadan çık
+# ============================================================
+
+need_root=0
+[[ "$DEST" == /boot/* ]] && need_root=1
+(( APPLY )) && need_root=1
+
+if (( need_root )) && [[ $EUID -ne 0 ]]; then
+    echo "grub: root gerekiyor, atlandı  ->  sudo ~/.local/bin/qs-theme-grub $THEME"
+    exit 0
+fi
+
+for tool in magick grub-mkfont; do
+    command -v "$tool" >/dev/null 2>&1 || { echo "grub: $tool yok, atlandı"; exit 0; }
+done
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+# ============================================================
+# Renkler
+# ============================================================
+
+ACCENT="$MAUVE"          # başlık + seçili satır + ilerleme çubuğu
+ON_ACCENT="$CRUST"       # vurgunun üstündeki yazı
+ITEM="$SUBTEXT1"         # seçili olmayan satırlar
+MUTED="$SUBTEXT0"        # alt başlık
+HINT="$OVERLAY0"         # en alttaki tuş ipucu
+
+# ============================================================
+# 1. Fontlar
+#
+# Nerd Font'un tamamını çevirmek 200 KB'lık .pf2 demek; ikonlar zaten PNG
+# olduğu için sadece yazı için gereken aralıkları alıyoruz (~16 KB).
+# ============================================================
+
+mkdir -p "$DEST/icons"
+rm -f "$DEST"/*.pf2
+
+FONT_TTF=""
+for candidate in \
+    "$UHOME/.local/share/fonts/JetBrains-Mono-Nerd-Font-Complete.ttf" \
+    "$UHOME/.local/share/fonts/Iosevka-Nerd-Font-Complete.ttf" \
+    /usr/share/fonts/TTF/DejaVuSans.ttf \
+    /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf
+do
+    [[ -r "$candidate" ]] && { FONT_TTF="$candidate"; break; }
+done
+
+# Latin + Latin-A (Türkçe), noktalama, oklar, kutu çizgileri
+RANGES='0x20-0x17f,0x2000-0x206f,0x2190-0x21ff,0x2500-0x257f'
+
+FONT_ITEM="LemonRice Regular 20"
+FONT_SMALL="LemonRice Regular 16"
+FONT_TITLE="LemonRiceBold Bold 34"
+FONT_SEL="LemonRiceBold Bold 20"
+
+if [[ -n "$FONT_TTF" ]] \
+   && grub-mkfont -n LemonRice     -s 20 -r "$RANGES" -o "$DEST/item.pf2"  "$FONT_TTF" 2>/dev/null \
+   && grub-mkfont -n LemonRice     -s 16 -r "$RANGES" -o "$DEST/small.pf2" "$FONT_TTF" 2>/dev/null \
+   && grub-mkfont -n LemonRiceBold -s 34 -b -r "$RANGES" -o "$DEST/title.pf2" "$FONT_TTF" 2>/dev/null \
+   && grub-mkfont -n LemonRiceBold -s 20 -b -r "$RANGES" -o "$DEST/sel.pf2" "$FONT_TTF" 2>/dev/null
+then
+    echo "grub: font üretildi ($(basename "$FONT_TTF"))"
+else
+    # Font üretilemediyse GRUB'un gömülü fontuna düş — tema yine çalışır
+    rm -f "$DEST"/*.pf2
+    FONT_ITEM="Unifont Regular 16"; FONT_SMALL="$FONT_ITEM"
+    FONT_TITLE="$FONT_ITEM"; FONT_SEL="$FONT_ITEM"
+    echo "grub: uygun ttf yok, gömülü font kullanılacak"
+fi
+
+# ============================================================
+# 2. 9 parçalı kutular
+#
+# GRUB kutuyu köşe/kenar/orta parçalarından kuruyor: köşeler sabit,
+# n/s yatayda, e/w dikeyde, c her iki yönde geriliyor.
+# ============================================================
+
+mk_box() {
+    local prefix="$1" r="$2" color="$3" alpha="${4:-1.0}" d=$((2 * $2))
+
+    magick -size "${d}x${d}" xc:none -fill "$color" \
+        -draw "roundrectangle 0,0,$((d - 1)),$((d - 1)),$r,$r" \
+        -alpha set -channel A -evaluate multiply "$alpha" +channel \
+        "$TMP/rr.png"
+
+    magick "$TMP/rr.png" -crop "${r}x${r}+0+0"     +repage "${prefix}_nw.png"
+    magick "$TMP/rr.png" -crop "${r}x${r}+${r}+0"  +repage "${prefix}_ne.png"
+    magick "$TMP/rr.png" -crop "${r}x${r}+0+${r}"  +repage "${prefix}_sw.png"
+    magick "$TMP/rr.png" -crop "${r}x${r}+${r}+${r}" +repage "${prefix}_se.png"
+
+    magick -size "1x${r}" xc:"$color" -alpha set \
+        -channel A -evaluate multiply "$alpha" +channel "${prefix}_n.png"
+    cp "${prefix}_n.png" "${prefix}_s.png"
+
+    magick -size "${r}x1" xc:"$color" -alpha set \
+        -channel A -evaluate multiply "$alpha" +channel "${prefix}_w.png"
+    cp "${prefix}_w.png" "${prefix}_e.png"
+
+    magick -size 1x1 xc:"$color" -alpha set \
+        -channel A -evaluate multiply "$alpha" +channel "${prefix}_c.png"
+}
+
+# DİKKAT: menüye panel (menu_pixmap_style) koymuyoruz. GRUB paneli girdi
+# sayısından bağımsız olarak boot_menu'nun tam yüksekliğinde çiziyor; çekirdek
+# sayısı değişince altı boş kalıyor. Yapıyı seçim hapı taşıyor.
+rm -f "$DEST"/{select,menu,term,progbg,progfg,thumb}_*.png
+mk_box "$DEST/select" 14 "$ACCENT"   1.0    # seçili satırın hapı
+mk_box "$DEST/term"   10 "$BASE"     0.92   # "c" konsolu
+mk_box "$DEST/progbg"  3 "$SURFACE0" 0.75   # zaman aşımı çubuğu — zemin
+mk_box "$DEST/progfg"  3 "$ACCENT"   1.0    # zaman aşımı çubuğu — dolgu
+mk_box "$DEST/thumb"   3 "$SURFACE2" 0.9    # kaydırma çubuğu
+
+echo "grub: kutular üretildi"
+
+# ============================================================
+# 3. İkonlar
+#
+# GRUB satırın --class listesini sırayla deneyip icons/<class>.png arıyor.
+#
+# DİKKAT: bu makinede çekirdek girdilerini 10_linux değil, blsuki modülünün
+# "uki" komutu üretiyor (/etc/grub.d/15_uki) ve sınıf adı "uki" oluyor —
+# klasik kurulumdaki "arch" değil. İkonlar birkaç yüz bayt olduğu için olası
+# bütün sınıf adlarına aynısını bırakıyoruz; hangisi gelirse gelsin satır
+# ikonsuz kalmıyor. Glifler Nerd Font'tan (kod noktası olarak yazılı ki
+# dosya düz metin editöründe okunabilir kalsın).
+# ============================================================
+
+G_ARCH=$'\uf303'; G_WIN=$'\uf17a'; G_TUX=$'\uf17c'
+G_DISK=$'\uf0a0'; G_CHIP=$'\uf2db'
+
+mk_icon() {
+    local out="$1" glyph="$2" color="$3"
+    [[ -n "$FONT_TTF" ]] || return 0
+    magick -background none -fill "$color" -font "$FONT_TTF" -pointsize 96 \
+        label:"$glyph" -trim +repage \
+        -resize 40x40 -gravity center -extent 48x48 "$out" 2>/dev/null
+}
+
+for cls in arch uki bls; do
+    mk_icon "$DEST/icons/$cls.png" "$G_ARCH" "$ACCENT"    # Arch logosu
+done
+for cls in linux gnu-linux; do
+    mk_icon "$DEST/icons/$cls.png" "$G_TUX" "$ITEM"       # Tux
+done
+mk_icon "$DEST/icons/windows.png" "$G_WIN"  "$BLUE"       # Windows logosu
+mk_icon "$DEST/icons/os.png"      "$G_DISK" "$ITEM"       # genel disk
+mk_icon "$DEST/icons/uefi.png"    "$G_CHIP" "$ITEM"       # yonga
+echo "grub: ikonlar üretildi"
+
+# ============================================================
+# 4. Arka plan
+#
+# O temanın son duvar kağıdını bulanıklaştırıp koyulaştırıyoruz; animasyonlu
+# duvar kağıdı seçiliyse ffmpeg ile tek kare alıyoruz. Bulunamazsa paletten
+# yumuşak bir degrade üretiliyor.
+# ============================================================
+
+WALL_CONF="$UHOME/.config/quickshell/wallpapers.conf"
+SRC=""
+if [[ -r "$WALL_CONF" ]]; then
+    SRC="$(sed -nE "s|^[[:space:]]*${THEME}[[:space:]]*=[[:space:]]*(.+)$|\1|p" "$WALL_CONF" | tail -1)"
+fi
+
+FRAME=""
+if [[ -n "$SRC" && -r "$SRC" ]]; then
+    case "${SRC,,}" in
+        *.mp4|*.mkv|*.webm|*.mov|*.gif)
+            if command -v ffmpeg >/dev/null 2>&1 \
+               && ffmpeg -y -loglevel error -ss 2 -i "$SRC" -frames:v 1 "$TMP/frame.png" 2>/dev/null \
+               && [[ -s "$TMP/frame.png" ]]; then
+                FRAME="$TMP/frame.png"
+            fi
+            ;;
+        *) FRAME="$SRC" ;;
+    esac
+fi
+
+# Duvar kağıdı menünün altında kalacağı için sertçe bastırıyoruz: bulanıklık,
+# koyulaştırma, palete doğru renklendirme ve kenarlara doğru koyulaşan vinyet.
+# Aksi halde parlak/kalabalık duvar kağıtlarında menü okunmuyor.
+if [[ -n "$FRAME" ]] && magick "$FRAME" \
+        -resize "${SCREEN_W}x${SCREEN_H}^" -gravity center -extent "${SCREEN_W}x${SCREEN_H}" \
+        -blur 0x24 -brightness-contrast -45x-20 \
+        -fill "$BASE" -colorize 55% \
+        \( -size "${SCREEN_W}x${SCREEN_H}" radial-gradient:none-"$CRUST" \) \
+        -compose over -composite \
+        -quality 92 "$DEST/background.png" 2>/dev/null
+then
+    echo "grub: arka plan duvar kağıdından ($(basename "$FRAME"))"
+else
+    # Paletten degrade: ortası biraz açık, kenarları crust
+    magick -size "${SCREEN_W}x${SCREEN_H}" \
+        radial-gradient:"$SURFACE0"-"$CRUST" \
+        -gravity center "$DEST/background.png"
+    echo "grub: arka plan paletten üretildi"
+fi
+
+# ============================================================
+# 5. theme.txt
+# ============================================================
+
+LABEL="${LABEL:-$THEME}"
+cat > "$DEST/theme.txt" <<EOF
+# qs-theme tarafından üretildi — elle düzenlemeyin, sudo qs-theme-grub <tema>
+# tema: $THEME
+
+title-text: ""
+desktop-image: "background.png"
+desktop-image-scale-method: "crop"
+desktop-color: "$BASE"
+
+terminal-font: "$FONT_SMALL"
+terminal-box: "term_*.png"
+terminal-left: "8%"
+terminal-top: "10%"
+terminal-width: "84%"
+terminal-height: "76%"
+terminal-border: "0"
+
+# ---------------- başlık ----------------
+
++ label {
+    left  = 0
+    top   = "14%"
+    width = "100%"
+    align = "center"
+    text  = "LemonRice"
+    color = "$ACCENT"
+    font  = "$FONT_TITLE"
+}
+
++ label {
+    left  = 0
+    top   = "21%"
+    width = "100%"
+    align = "center"
+    text  = "$LABEL"
+    color = "$MUTED"
+    font  = "$FONT_SMALL"
+}
+
+# ---------------- menü ----------------
+
++ boot_menu {
+    left   = "32%"
+    top    = "30%"
+    width  = "36%"
+    height = "40%"
+
+    item_font          = "$FONT_ITEM"
+    selected_item_font = "$FONT_SEL"
+    item_color          = "$ITEM"
+    selected_item_color = "$ON_ACCENT"
+
+    item_height  = 52
+    item_padding = 14
+    item_spacing = 6
+
+    icon_width      = 26
+    icon_height     = 26
+    item_icon_space = 20
+
+    selected_item_pixmap_style = "select_*.png"
+
+    scrollbar       = true
+    scrollbar_width = 6
+    scrollbar_thumb = "thumb_*.png"
+}
+
+# ---------------- zaman aşımı ----------------
+
++ progress_bar {
+    id     = "__timeout__"
+    left   = "38%"
+    top    = "78%"
+    width  = "24%"
+    height = 6
+
+    show_text       = false
+    bar_style       = "progbg_*.png"
+    highlight_style = "progfg_*.png"
+}
+
++ label {
+    id    = "__timeout__"
+    left  = 0
+    top   = "81%"
+    width = "100%"
+    align = "center"
+    text  = "@TIMEOUT_NOTIFICATION_SHORT@"
+    color = "$MUTED"
+    font  = "$FONT_SMALL"
+}
+
+# ---------------- tuş ipucu ----------------
+
++ label {
+    left  = 0
+    top   = "90%"
+    width = "100%"
+    align = "center"
+    text  = "↑ ↓ seç   ·   Enter başlat   ·   e düzenle   ·   c konsol"
+    color = "$HINT"
+    font  = "$FONT_SMALL"
+}
+EOF
+
+echo "grub: theme.txt yazıldı -> $DEST"
+
+# ============================================================
+# 6. /etc/default/grub + grub.cfg
+# ============================================================
+
+if (( ! APPLY )); then
+    echo "grub: --no-apply, grub.cfg'ye dokunulmadı"
+    exit 0
+fi
+
+# KEY=VALUE satırını değiştirir; yorumluysa açar, hiç yoksa ekler
+set_default() {
+    local key="$1" value="$2" file="$GRUB_DEFAULT_FILE"
+    if grep -qE "^[[:space:]]*#?[[:space:]]*${key}=" "$file"; then
+        sed -i -E "s|^[[:space:]]*#?[[:space:]]*${key}=.*|${key}=${value}|" "$file"
+    else
+        printf '%s=%s\n' "$key" "$value" >> "$file"
+    fi
+}
+
+# Yedek sadece gerçekten bir şey değişince alınıyor — her tema değişiminde
+# .bak-* biriktirmesin diye önce kopya üzerinde deneyip karşılaştırıyoruz.
+CFG_CHANGED=0
+if [[ -w "$GRUB_DEFAULT_FILE" ]]; then
+    ORIG="$GRUB_DEFAULT_FILE"
+    cp "$ORIG" "$TMP/grub.new"
+    GRUB_DEFAULT_FILE="$TMP/grub.new"
+    set_default GRUB_THEME "\"$DEST/theme.txt\""
+    set_default GRUB_GFXMODE "${SCREEN_W}x${SCREEN_H}x32,${SCREEN_W}x${SCREEN_H},auto"
+    set_default GRUB_TIMEOUT_STYLE menu
+    GRUB_DEFAULT_FILE="$ORIG"
+
+    if ! cmp -s "$TMP/grub.new" "$ORIG"; then
+        cp "$ORIG" "${ORIG}.bak-$(date +%Y%m%d-%H%M%S)"
+        cat "$TMP/grub.new" > "$ORIG"
+        CFG_CHANGED=1
+        echo "grub: /etc/default/grub güncellendi (yedek .bak-* olarak duruyor)"
+    else
+        echo "grub: /etc/default/grub zaten doğru"
+    fi
+else
+    echo "grub: $GRUB_DEFAULT_FILE yazılabilir değil, atlandı"
+fi
+
+# grub.cfg zaten bu temayı gösteriyorsa yeniden üretmeye gerek yok: tema
+# değişiminde sadece $DEST içindeki dosyalar değişiyor, yol aynı kalıyor.
+# Gereksiz grub-mkconfig hem yavaş hem de önyükleyici config'ine dokunuyor.
+NEED_MKCONFIG=$CFG_CHANGED
+if [[ ! -r /boot/grub/grub.cfg ]] || ! grep -qF "$DEST/theme.txt" /boot/grub/grub.cfg 2>/dev/null; then
+    NEED_MKCONFIG=1
+fi
+
+if (( NEED_MKCONFIG )) && command -v grub-mkconfig >/dev/null 2>&1; then
+    if grub-mkconfig -o /boot/grub/grub.cfg 2>&1 | sed 's/^/grub|  /'; then
+        echo "grub: grub.cfg yeniden üretildi"
+    else
+        echo "grub: grub-mkconfig başarısız" >&2
+        exit 1
+    fi
+else
+    echo "grub: grub.cfg zaten güncel, dokunulmadı"
+fi
+
+echo "grub: $THEME uygulandı"

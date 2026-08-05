@@ -26,6 +26,9 @@ ShellRoot {
 
     // Ekran görüntüsü arayüzü (Super+Shift+S)
     ScreenshotWindow {}
+
+    // Alt+Tab pencere anahtarlayıcısı
+    WindowSwitcherWindow {}
 }
 
 

@@ -112,8 +112,10 @@ RowLayout {
         }
     }
 
+    // Beş süreç birden açıyor (ddcutil dahil, en pahalısı o);
+    // performans modunda aralık uzuyor.
     Timer {
-        interval: 2000
+        interval: PerfMode.every(2000)
         running: true
         repeat: true
         triggeredOnStart: true

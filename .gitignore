@@ -25,3 +25,9 @@ config/quickshell/wallpaper.txt
 # Duvar kağıtları wallpapers.zip olarak giriyor (qs-export üretiyor).
 # Açılmış klasör yanlışlıkla eklenmesin:
 wallpapers/
+
+# qs-theme-hyprlock üretiyor (arka plan yüzlerce KB)
+config/hypr/hyprlock.conf
+config/hypr/hyprlock-bg.png
+config/hypr/hyprlock-avatar.png
+config/hypr/hyprlock-date.sh

@@ -24,7 +24,15 @@ hl.bind(mainMod .. " + Left",  hl.dsp.focus({ direction = "left" }))
 hl.bind(mainMod .. " + Right", hl.dsp.focus({ direction = "right" }))
 hl.bind(mainMod .. " + Up",    hl.dsp.focus({ direction = "up" }))
 hl.bind(mainMod .. " + Down",  hl.dsp.focus({ direction = "down" }))
-hl.bind("ALT + Tab",           hl.dsp.window.cycle_next())
+-- Alt+Tab: quickshell pencere anahtarlayıcısı.
+-- Alt basılı tutulurken Tab seçimi ilerletiyor, Alt bırakılınca seçili
+-- pencereye (ve onun workspace'ine) geçiliyor. Bkz. qs-alt-tab.
+local altTab = os.getenv("HOME") .. "/.local/bin/qs-alt-tab "
+hl.bind("ALT + Tab",           hl.dsp.exec_cmd(altTab .. "next"), { repeating = true })
+hl.bind("ALT + SHIFT + Tab",   hl.dsp.exec_cmd(altTab .. "prev"), { repeating = true })
+-- Alt'ın kendisinin bırakılması: seçimi onayla (release bind)
+hl.bind("ALT + Alt_L",         hl.dsp.exec_cmd(altTab .. "commit"), { release = true })
+hl.bind("ALT + Alt_R",         hl.dsp.exec_cmd(altTab .. "commit"), { release = true })
 
 -- Move active window around current workspace
 hl.bind(mainMod .. " + SHIFT + Right", hl.dsp.window.move({ direction = "r" }))
@@ -106,12 +114,13 @@ hl.bind(mainMod .. " + CONTROL + ALT + Right", hl.dsp.window.move({ workspace = 
 hl.bind(mainMod .. " + CONTROL + ALT + Left",  hl.dsp.window.move({ workspace = "r-1" }))
 
 -- Scroll through existing workspaces
-hl.bind(mainMod .. " + mouse_down", hl.dsp.focus({ workspace = "e+1" }))
-hl.bind(mainMod .. " + mouse_up",   hl.dsp.focus({ workspace = "e-1" }))
+hl.bind(mainMod .. " + mouse_down",            hl.dsp.focus({ workspace = "e+1" }))
+hl.bind(mainMod .. " + mouse_up",              hl.dsp.focus({ workspace = "e-1" }))
+hl.bind(mainMod .. " + CONTROL + mouse_down",  hl.dsp.focus({ workspace = "empty" }))
 
 -- Special workspace (scratchpad)
-hl.bind(mainMod .. " + CONTROL + S", hl.dsp.window.move({ workspace = "special" }))
-hl.bind(mainMod .. " + S",         hl.dsp.workspace.toggle_special())
+hl.bind(mainMod .. " + CONTROL + S",           hl.dsp.window.move({ workspace = "special" }))
+hl.bind(mainMod .. " + S",                     hl.dsp.workspace.toggle_special())
 
 -----------------------
 ---- NOTIFICATIONS ----

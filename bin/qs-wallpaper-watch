@@ -7,7 +7,7 @@ yoksa geri dönüşte baştan yüklenirdi).
 
 Hyprland autostart'tan çalışıyor.
 """
-import json, os, socket, subprocess, sys
+import json, os, socket, string, subprocess, sys
 
 RUNTIME = os.environ.get("XDG_RUNTIME_DIR", "/run/user/1000")
 HIS = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "")
@@ -31,16 +31,37 @@ def mpv(pause):
         pass
 
 
-STATE = f"{RUNTIME}/qs-maximize.on"
+# Eski sürümde boşluksuz mod globaldi ve tek bir bayrak dosyası vardı.
+# qs-maximize ilk basışta onu temizliyor; o ana kadar gerçekten global
+# olduğu için burada hâlâ hesaba katıyoruz.
+LEGACY_STATE = f"{RUNTIME}/qs-maximize.on"
+
+ASCII_ALNUM = set(string.ascii_letters + string.digits)
+
+
+def state_path(ws_name):
+    """qs-maximize'in workspace başına tuttuğu durum dosyası.
+
+    Ad temizleme qs-maximize'deki `tr -c '[:alnum:]' '_'` ile birebir aynı
+    olmalı, yoksa iki taraf farklı dosyaya bakar. tr bayt bayt çalıştığı için
+    burada da baytlar üzerinden dönüyoruz.
+    """
+    safe = "".join(chr(b) if chr(b) in ASCII_ALNUM else "_"
+                   for b in ws_name.encode())
+    return f"{RUNTIME}/qs-maximize.ws.{safe}"
 
 
 def covered():
     """Ekranı gerçekten kaplayan bir şey var mı?
 
-    İki durum: (1) görünür workspace'te tam ekran pencere, (2) boşluksuz mod
-    (Super+H) AÇIK **ve** görünür workspace'te en az bir pencere var.
+    İki durum: (1) görünür workspace'te tam ekran pencere, (2) görünür
+    workspace'te boşluksuz mod (Super+H) AÇIK **ve** o workspace'te en az bir
+    pencere var.
     DİKKAT: sadece boşluksuz moda bakmak yetmiyor — pencereler kapanınca ya da
     hiç pencere yokken duvar kağıdı görünür oluyor, o zaman duraklatılmamalı.
+    DİKKAT: boşluksuz mod artık workspace başına (bkz. qs-maximize), o yüzden
+    kontrol de workspace başına. Boşluğu kapalı bir workspace'ten boşluğu açık
+    olana geçince duvar kağıdı kaldığı yerden devam etmeli.
     """
     try:
         mons = json.loads(subprocess.run(["hyprctl", "monitors", "-j"],
@@ -50,12 +71,23 @@ def covered():
     except (ValueError, OSError):
         return False
 
-    visible = {m["activeWorkspace"]["id"] for m in mons}
-    on_screen = [c for c in clients if c["workspace"]["id"] in visible]
+    visible = {}
+    for m in mons:
+        ws = m.get("activeWorkspace") or {}
+        if ws.get("name"):
+            visible[ws["id"]] = ws["name"]
 
-    if any(c.get("fullscreen", 0) for c in on_screen):
-        return True
-    return bool(on_screen) and os.path.exists(STATE)
+    legacy = os.path.exists(LEGACY_STATE)
+
+    for ws_id, ws_name in visible.items():
+        on_ws = [c for c in clients if c["workspace"]["id"] == ws_id]
+        if not on_ws:
+            continue
+        if any(c.get("fullscreen", 0) for c in on_ws):
+            return True
+        if legacy or os.path.exists(state_path(ws_name)):
+            return True
+    return False
 
 
 def main():

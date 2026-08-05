@@ -30,7 +30,7 @@ hl.window_rule({ match = { class = "org.kde.gwenview"}, float = true, center = t
 hl.window_rule({
     match = {
         class = "^(org.kde.dolphin)$",
-        title = "negative:^(Moving.*|Create New.*|Extract.*|Compress.*|Copying.*|Progress.*|Configure.*|Properties.*|Choose\\sApplication.*)$",
+        title = "negative:^(Moving.*|Create New.*|Extract.*|Compress.*|Copying.*|Progress.*|Configure.*|Properties.*|Choose\\sApplication.*|.*Folder Already Exists.*)$",
     },
     float = true,
     center = true,

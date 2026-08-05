@@ -143,9 +143,13 @@ fi
 #
 # Her hedef ayrı bir küçük script: gtk, qt/kvantum, kde, dunst, btop, ytmd.
 # Biri başarısız olsa diğerleri etkilenmiyor.
+#
+# grub ve sddm root istiyor (/boot ve /usr/share root'a ait). Normal
+# kullanıcıyla çalıştırıldıklarında ne yapılacağını yazıp çıkıyorlar —
+# tıpkı qs-ytmd-titlebar gibi ayrıca sudo ile çalıştırmak gerekiyor.
 # ============================================================
 
-for helper in qs-theme-gtk qs-theme-kvantum qs-theme-kde qs-theme-dunst qs-theme-btop qs-theme-ytmd qs-theme-hypr qs-theme-zen; do
+for helper in qs-theme-gtk qs-theme-kvantum qs-theme-kde qs-theme-dunst qs-theme-btop qs-theme-ytmd qs-theme-hypr qs-theme-hyprlock qs-theme-zen qs-theme-grub qs-theme-sddm; do
     if [[ -x "$BIN/$helper" ]]; then
         "$BIN/$helper" "$THEME" || echo "${helper#qs-theme-}: başarısız, atlandı"
     fi

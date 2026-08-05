@@ -41,9 +41,12 @@ copy_file() {
 }
 
 echo "config/"
-# Hyprland — üretilen theme.lua ve hyprpaper.conf hariç
+# Hyprland — üretilenler hariç: theme.lua, hyprpaper.conf ve kilit ekranının
+# tamamı (qs-theme-hyprlock üretiyor; hyprlock-bg.png yüzlerce KB)
 copy_dir "$CFG/hypr" "$DEST/config/hypr" \
-    --exclude='hyprpaper.conf' --exclude='config/theme.lua'
+    --exclude='hyprpaper.conf' --exclude='config/theme.lua' \
+    --exclude='hyprlock.conf' --exclude='hyprlock-bg.png' \
+    --exclude='hyprlock-avatar.png' --exclude='hyprlock-date.sh'
 
 # quickshell — TAMAMI. topbar/ dışındaki svg ikonlar (tepsi oku, medya
 # düğmeleri) ve modules/runcat (koşan kedi) da gerekiyor
