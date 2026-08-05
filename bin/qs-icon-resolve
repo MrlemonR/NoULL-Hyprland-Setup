@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+#
+# İkon adlarını gerçek dosya yollarına çevirir.
+#
+# Bu oturumda QT_QPA_PLATFORMTHEME=qt6ct ayarlı ama qt6ct yapılandırılmadığı
+# için Qt'nin ikon teması çözümlemesi hicolor'daki ikonları (Claude gibi)
+# bulamıyor. Bu yüzden dosya sistemini kendimiz tarıyoruz.
+#
+# Kullanım: qs-icon-resolve ad1 ad2 ...
+# Çıktı:    ad<TAB>/tam/yol   (bulunamayanlar atlanır)
+
+set -u
+
+THEMES=(Papirus-Dark Papirus hicolor breeze-dark breeze Adwaita gnome oxygen)
+SIZES=(256x256 192x192 128x128 96x96 64x64 48x48 scalable 42x42 32x32 24x24 22x22 16x16)
+CATS=(apps devices mimetypes places status categories)
+# DİKKAT: flatpak uygulamalarının ikonları (örn. Sober) yalnızca flatpak'in
+# export dizinlerinde duruyor; buraya eklenmezse Papirus'ta karşılığı olmayan
+# her flatpak ikonsuz kalıyor.
+ROOTS=("$HOME/.local/share/icons"
+       "$HOME/.icons"
+       "$HOME/.local/share/flatpak/exports/share/icons"
+       /var/lib/flatpak/exports/share/icons
+       /usr/local/share/icons
+       /usr/share/icons)
+
+resolve() {
+    local name="$1"
+
+    # Zaten tam yol
+    if [[ "$name" = /* ]]; then
+        [[ -f "$name" ]] && printf '%s' "$name"
+        return
+    fi
+
+    local root theme size cat ext f
+    for root in "${ROOTS[@]}"; do
+        [[ -d "$root" ]] || continue
+        for theme in "${THEMES[@]}"; do
+            [[ -d "$root/$theme" ]] || continue
+            for size in "${SIZES[@]}"; do
+                for cat in "${CATS[@]}"; do
+                    for ext in svg png xpm; do
+                        f="$root/$theme/$size/$cat/$name.$ext"
+                        [[ -f "$f" ]] && { printf '%s' "$f"; return; }
+                    done
+                done
+            done
+        done
+    done
+
+    # Tema dizini olmayan yerler
+    for f in "/usr/share/pixmaps/$name.png" "/usr/share/pixmaps/$name.svg" \
+             "/usr/share/pixmaps/$name.xpm" "$HOME/.local/share/icons/$name.png"; do
+        [[ -f "$f" ]] && { printf '%s' "$f"; return; }
+    done
+
+    # Son çare: sığ bir arama (flatpak dizinleri dahil)
+    local search=()
+    for root in "${ROOTS[@]}"; do
+        [[ -d "$root" ]] && search+=("$root")
+    done
+    f=$(find "${search[@]}" -maxdepth 5 \
+            \( -name "$name.svg" -o -name "$name.png" \) 2>/dev/null | head -1)
+    [[ -n "$f" ]] && printf '%s' "$f"
+}
+
+for name in "$@"; do
+    [[ -z "$name" ]] && continue
+    path=$(resolve "$name")
+    [[ -n "$path" ]] && printf '%s\t%s\n' "$name" "$path"
+done
+
+exit 0

@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+#
+# cliphist üzerine ince bir katman: pano geçmişini quickshell'in okuyabileceği
+# JSON'a çevirir, küçük resim üretir, kopyalar ve siler.
+#
+#   qs-clip list           -> JSON: [{id, kind, preview, width, height}]
+#   qs-clip thumb <id>     -> küçük resmin yolunu yazdırır
+#   qs-clip copy <id>      -> girdiyi panoya koyar
+#   qs-clip delete <id>    -> girdiyi geçmişten siler
+#   qs-clip wipe           -> tüm geçmişi siler
+
+set -u
+
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/qs-clip"
+mkdir -p "$CACHE"
+
+cmd="${1:-list}"
+
+case "$cmd" in
+list)
+    cliphist list 2>/dev/null | python3 -c '
+import json, re, sys
+
+out = []
+for line in sys.stdin:
+    line = line.rstrip("\n")
+    if not line:
+        continue
+    parts = line.split("\t", 1)
+    if len(parts) != 2:
+        continue
+    cid, preview = parts
+
+    m = re.match(r"^\[\[\s*binary data\s+\S+\s+\S+\s+(\w+)\s+(\d+)x(\d+)\s*\]\]$", preview.strip())
+    if m:
+        out.append({
+            "id": cid,
+            "kind": "image",
+            "preview": f"{m.group(1).upper()} image · {m.group(2)}x{m.group(3)}",
+            "width": int(m.group(2)),
+            "height": int(m.group(3)),
+        })
+    else:
+        out.append({
+            "id": cid,
+            "kind": "text",
+            "preview": preview,
+            "width": 0,
+            "height": 0,
+        })
+
+json.dump(out, sys.stdout)
+'
+    ;;
+thumb)
+    id="${2:-}"
+    [[ -z "$id" ]] && exit 0
+    out="$CACHE/$id.png"
+    if [[ ! -f "$out" ]]; then
+        # magick'e stdin'den veriyoruz: dosya uzantısı olmadığı için içeriğe
+        # bakarak biçimi kendi bulur (.raw uzantısı onu DNG sanıyordu)
+        if ! cliphist decode "$id" 2>/dev/null | magick - -resize 480x480\> "$out" >/dev/null 2>&1; then
+            rm -f "$out"
+        fi
+    fi
+    [[ -f "$out" ]] && printf '%s' "$out"
+    ;;
+copy)
+    id="${2:-}"
+    [[ -z "$id" ]] && exit 0
+    cliphist decode "$id" | wl-copy
+    ;;
+delete)
+    id="${2:-}"
+    [[ -z "$id" ]] && exit 0
+    cliphist list | grep -m1 "^$id\\s" | cliphist delete
+    rm -f "$CACHE/$id.png"
+    ;;
+wipe)
+    cliphist wipe
+    rm -f "$CACHE"/*.png
+    ;;
+esac
+
+exit 0

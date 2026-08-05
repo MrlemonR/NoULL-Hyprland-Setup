@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+#
+# Panodakini odaklı pencereye yapıştırır (pano geçmişinden seçtikten sonra
+# ClipboardWindow bunu çağırıyor).
+#
+# Nasıl: Hyprland'in send_shortcut dispatcher'ı ile Ctrl+V gönderiyoruz.
+# wtype/ydotool kurulu değil, buna gerek de yok.
+#
+# DİKKAT: Hyprland config'i Lua olduğu için dispatcher Lua sözdizimiyle
+# veriliyor: hl.dsp.send_shortcut({ mods = "...", key = "..." }).
+#
+# DİKKAT: terminallerde yapıştırma Ctrl+Shift+V. Odaklı pencerenin sınıfına
+# bakıp doğru kısayolu gönderiyoruz.
+
+set -u
+
+TERMINALS='^(kitty|ghostty|[Kk]onsole|Alacritty|foot|wezterm|gnome-terminal|xfce[0-9]?-terminal|org\.wezfurlong\.wezterm)$'
+
+# DİKKAT: send_shortcut'a hedef pencereyi AÇIKÇA vermek gerekiyor; window
+# alanı olmadan (ya da "activewindow" ile) tuş hiçbir yere gitmiyor.
+read -r class addr < <(hyprctl activewindow -j 2>/dev/null | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    print(d.get("class", "-"), d.get("address", ""))
+except Exception:
+    print("-", "")
+')
+
+[[ -z "${addr:-}" ]] && exit 0
+
+mods="CTRL"
+if [[ "$class" =~ $TERMINALS ]]; then
+    mods="CTRL SHIFT"
+fi
+
+hyprctl dispatch \
+    "hl.dsp.send_shortcut({ mods = \"$mods\", key = \"V\", window = \"address:$addr\" })" \
+    >/dev/null 2>&1

@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Thin wrapper around hyprshot with shared settings.
+# Usage: screenshot <region|window|output|active> [--copy]
+#   --copy  copy to clipboard only, don't save to disk
+
+set -euo pipefail
+
+DIR="${HYPRSHOT_DIR:-$HOME/Pictures/Screenshots}"
+mode="${1:-region}"
+shift || true
+
+args=(-z -t 2000 -o "$DIR" -f "screenshot_$(date +%Y-%m-%d_%H-%M-%S).png")
+
+case "$mode" in
+    region) args+=(-m region) ;;
+    window) args+=(-m window) ;;
+    output) args+=(-m output) ;;
+    active) args+=(-m active -m window) ;;
+    screen) args+=(-m active -m output) ;;
+    *) echo "unknown mode: $mode" >&2; exit 1 ;;
+esac
+
+if [[ "${1:-}" == "--copy" ]]; then
+    args+=(--clipboard-only)
+fi
+
+mkdir -p "$DIR"
+exec hyprshot "${args[@]}"

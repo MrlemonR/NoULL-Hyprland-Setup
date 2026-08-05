@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+#
+# Hyprland pencere kenarlıklarını temaya bağlar.
+#
+#   qs-theme-hypr <tema>
+#
+# İki iş yapıyor:
+#   1) ~/.config/hypr/config/theme.lua üretiyor — decorations.lua bunu
+#      require edip renkleri oradan alıyor (yeniden açılışta da kalıcı).
+#   2) Çalışan Hyprland'e hyprctl keyword ile aynı renkleri anında veriyor,
+#      böylece reload beklemeden değişiyor.
+
+set -u
+
+THEME="${1:-}"
+[[ -z "$THEME" ]] && { echo "kullanım: qs-theme-hypr <tema>" >&2; exit 1; }
+
+OUT="$HOME/.config/hypr/config/theme.lua"
+
+# Renkler tek kaynaktan (bkz. qs-palette)
+if ! eval "$("$HOME/.local/bin/qs-palette" env "$THEME" 2>/dev/null)"; then
+    echo "hypr: '$THEME' için palet yok, atlandı"; exit 0
+fi
+ACCENT="${MAUVE#\#}"     # kenarlık vurgusu
+ACCENT2="${BLUE#\#}"     # grup kenarlığı
+MUTED="${SURFACE1#\#}"   # pasif kenarlık
+DIM="${SURFACE0#\#}"     # pasif grup
+
+# DİKKAT: Lua config parser'ı gradient ("rgba(..) rgba(..) 45deg") kabul
+# etmiyor — "invalid color" diyor. Tek renk kullanıyoruz.
+ACTIVE="rgba(${ACCENT}ff)"
+INACTIVE="rgba(${MUTED}ff)"
+GROUP_ACTIVE="rgba(${ACCENT2}ff)"
+GROUP_INACTIVE="rgba(${DIM}ff)"
+
+# ---------------- 1. Kalıcı dosya ----------------
+
+if [[ -w "$(dirname "$OUT")" ]]; then
+    cat > "$OUT" <<EOF
+-- qs-theme tarafından üretildi — elle düzenlemeyin, qs-theme <tema> çalıştırın
+-- tema: $THEME
+return {
+    active_border      = "$ACTIVE",
+    inactive_border    = "$INACTIVE",
+    group_active       = "$GROUP_ACTIVE",
+    group_inactive     = "$GROUP_INACTIVE",
+    groupbar_active    = "$GROUP_ACTIVE",
+    groupbar_inactive  = "$GROUP_INACTIVE",
+}
+EOF
+    echo "hypr: theme.lua yazıldı"
+else
+    echo "hypr: $(dirname "$OUT") yazılabilir değil, dosya atlandı"
+fi
+
+# ---------------- 2. Çalışan Hyprland ----------------
+
+if ! command -v hyprctl >/dev/null 2>&1 || ! hyprctl version >/dev/null 2>&1; then
+    echo "hypr: çalışan Hyprland yok, canlı uygulama atlandı"
+    exit 0
+fi
+
+# DİKKAT: bu makinede Hyprland config'i Lua. "hyprctl keyword" çalışmıyor
+# ("keyword can't work with non-legacy parsers. Use eval."), Lua veren
+# "hyprctl eval" gerekiyor.
+if hyprctl eval "hl.config({
+    general = { col = {
+        active_border = \"$ACTIVE\",
+        inactive_border = \"$INACTIVE\",
+    } },
+    group = {
+        col = {
+            border_active = \"$GROUP_ACTIVE\",
+            border_inactive = \"$GROUP_INACTIVE\",
+        },
+        groupbar = { col = {
+            active = \"$GROUP_ACTIVE\",
+            inactive = \"$GROUP_INACTIVE\",
+        } },
+    },
+})" >/dev/null; then
+    echo "hypr: kenarlık renkleri uygulandı ($THEME)"
+else
+    echo "hypr: canlı uygulama başarısız (dosya yazıldı, reload'da gelir)"
+fi

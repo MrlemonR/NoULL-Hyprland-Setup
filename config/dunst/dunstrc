@@ -1,0 +1,148 @@
+[global]
+
+    # ---------------- GENERAL ----------------
+
+    width = 380
+    height = (0, 400)
+
+    origin = top-right
+    offset = (15, 15)
+
+    gap_size = 8
+
+    timeout = 5s
+
+    # Topbar'daki bildirim merkezi geçmişi buradan okuyor; varsayılan 20 çok azdı
+    history_length = 100
+
+    background = "#0f0f0f"
+    foreground = "#ebebeb"
+
+    frame_width = 2
+    frame_color = "#e0e0e0"
+
+    corner_radius = 0
+
+    font = "JetBrainsMono Nerd Font 10"
+
+
+# ---------------- ICON ----------------
+
+    icon_position = left
+
+    min_icon_size = 48
+    max_icon_size = 48
+
+    icon_theme = Papirus-Dark
+
+icon_path = /usr/share/icons/Papirus-Dark/48x48/apps:/usr/share/icons/Papirus-Dark/48x48/status:/usr/share/icons/Papirus-Dark/48x48/devices:/usr/share/icons/Papirus-Dark/32x32/apps:/usr/share/icons/Papirus-Dark/32x32/status:/usr/share/icons/Papirus-Dark/32x32/devices:/usr/share/icons/Papirus-Dark/24x24/apps:/usr/share/icons/Papirus-Dark/24x24/status:/usr/share/icons/Papirus-Dark/24x24/devices:/usr/share/icons/Papirus-Dark/16x16/apps:/usr/share/icons/Papirus-Dark/16x16/status:/usr/share/icons/Papirus-Dark/16x16/devices
+
+    # ---------------- TEXT ----------------
+
+    markup = full
+
+    format = "<b>%s</b>\n%b"
+
+    # Eylemi olan bildirimlerdeki "(A)" işaretini gizle — hatırlatmalarda
+    # zaten gövdede "[ Önizle ]" butonu var
+    show_indicators = false
+
+    alignment = left
+    vertical_alignment = center
+
+    padding = 12
+    horizontal_padding = 12
+
+
+    # ---------------- PROGRESS BAR ----------------
+
+    progress_bar = true
+
+    progress_bar_height = 4
+    progress_bar_frame_width = 0
+
+    progress_bar_min_width = 100
+    progress_bar_max_width = 356
+
+
+    # ---------------- MOUSE ----------------
+
+    # do_action: bildirimin varsayılan eylemini çalıştırır (takvim
+    # hatırlatmalarındaki "Önizle" butonu buna bağlı). Eylemi olmayan
+    # bildirimlerde sadece kapatır.
+    mouse_left_click = do_action, close_current
+    mouse_middle_click = close_all
+    mouse_right_click = close_current
+
+
+# ============================================================
+# LOW URGENCY
+# ============================================================
+
+[urgency_low]
+
+    background = "#0f0f0f"
+    foreground = "#9a9a9a"
+
+    frame_color = "#474747"
+
+    timeout = 3s
+
+
+# ============================================================
+# NORMAL URGENCY
+# ============================================================
+
+[urgency_normal]
+
+    background = "#0f0f0f"
+    foreground = "#ebebeb"
+
+    frame_color = "#e0e0e0"
+    highlight = "#e0e0e0"
+
+    timeout = 5s
+
+
+# ============================================================
+# CRITICAL URGENCY
+# ============================================================
+
+[urgency_critical]
+
+    background = "#0f0f0f"
+    foreground = "#f5f5f5"
+
+    frame_color = "#f5f5f5"
+
+    timeout = 0
+
+[forward_all_notifications]
+
+    script = /home/mrlemon/.local/bin/dunst-forward
+    format = ""
+
+
+[proxy_notifications]
+
+    appname = "DunstProxy"
+    format = "<b>%s</b>\n%b"
+
+
+# Takvim hatırlatmaları: DunstProxy adıyla gönderiliyor ki forward script'i
+# atlasın, kategoriyle ayırt edilip tıklanana kadar ekranda kalıyor.
+
+[qs_reminder]
+
+    appname = "DunstProxy"
+    category = "qs.reminder"
+
+    format = "<b>%s</b>\n%b"
+
+    timeout = 0
+
+    # Not defteri ikonunu qs-note-reminder yolluyor, geri sayım çubuğu yok
+    progress_bar = false
+
+    frame_color = "#a8a8a8"
+    highlight = "#a8a8a8"

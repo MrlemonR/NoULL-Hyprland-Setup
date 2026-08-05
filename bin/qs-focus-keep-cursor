@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+#
+# Focuses a window WITHOUT letting the pointer follow.
+#
+# cursor.no_warps is intentionally off globally (Super+arrow relies on
+# Hyprland's default focus-follows-pointer warp), but Alt+Tab is meant to
+# leave the mouse exactly where it was. This is the one path that needs the
+# opposite of the global setting, so it saves the pointer position, focuses,
+# and puts the pointer back.
+#
+#   qs-focus-keep-cursor <window address, e.g. 0x5577...>
+
+set -u
+
+ADDR="${1:?usage: qs-focus-keep-cursor <address>}"
+
+POS="$(hyprctl cursorpos)"
+X="${POS%%,*}"
+Y="${POS#*, }"
+
+hyprctl dispatch "hl.dsp.focus({ window = \"address:$ADDR\" })" >/dev/null
+hyprctl dispatch "hl.dsp.cursor.move({ x = $X, y = $Y })" >/dev/null

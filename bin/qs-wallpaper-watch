@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+"""Tam ekran/maximize pencere varken animasyonlu duvar kağıdını duraklatır.
+
+Nasılsa görünmüyor: video boşuna GPU/CPU yiyordu. Hyprland'in olay soketini
+dinleyip mpv'nin IPC soketine pause gönderiyoruz (mpvpaper'ı öldürmüyoruz,
+yoksa geri dönüşte baştan yüklenirdi).
+
+Hyprland autostart'tan çalışıyor.
+"""
+import json, os, socket, subprocess, sys
+
+RUNTIME = os.environ.get("XDG_RUNTIME_DIR", "/run/user/1000")
+HIS = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "")
+EVENTS = f"{RUNTIME}/hypr/{HIS}/.socket2.sock"
+MPV_SOCK = f"{RUNTIME}/qs-mpvpaper.sock"
+WATCHED = ("fullscreen>>", "openwindow>>", "closewindow>>", "workspace>>",
+           "focusedmon>>", "movewindow>>")
+
+
+def mpv(pause):
+    """mpv IPC: soket yoksa animasyonlu duvar kağıdı yok demektir, sessiz geç."""
+    if not os.path.exists(MPV_SOCK):
+        return
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(0.5)
+            s.connect(MPV_SOCK)
+            cmd = {"command": ["set_property", "pause", bool(pause)]}
+            s.sendall((json.dumps(cmd) + "\n").encode())
+    except OSError:
+        pass
+
+
+STATE = f"{RUNTIME}/qs-maximize.on"
+
+
+def covered():
+    """Ekranı gerçekten kaplayan bir şey var mı?
+
+    İki durum: (1) görünür workspace'te tam ekran pencere, (2) boşluksuz mod
+    (Super+H) AÇIK **ve** görünür workspace'te en az bir pencere var.
+    DİKKAT: sadece boşluksuz moda bakmak yetmiyor — pencereler kapanınca ya da
+    hiç pencere yokken duvar kağıdı görünür oluyor, o zaman duraklatılmamalı.
+    """
+    try:
+        mons = json.loads(subprocess.run(["hyprctl", "monitors", "-j"],
+                                         capture_output=True, text=True).stdout)
+        clients = json.loads(subprocess.run(["hyprctl", "clients", "-j"],
+                                            capture_output=True, text=True).stdout)
+    except (ValueError, OSError):
+        return False
+
+    visible = {m["activeWorkspace"]["id"] for m in mons}
+    on_screen = [c for c in clients if c["workspace"]["id"] in visible]
+
+    if any(c.get("fullscreen", 0) for c in on_screen):
+        return True
+    return bool(on_screen) and os.path.exists(STATE)
+
+
+def main():
+    # qs-maximize boşluksuz modu açıp kapatınca Hyprland olayı üretmiyor,
+    # bu yüzden tek seferlik yeniden değerlendirme için çağırıyor
+    if "--once" in sys.argv:
+        mpv(covered())
+        return
+
+    state = None
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.connect(EVENTS)
+    except OSError as exc:
+        sys.exit(f"qs-wallpaper-watch: olay soketine bağlanılamadı ({exc})")
+
+    mpv(covered())
+    buf = b""
+    while True:
+        chunk = sock.recv(4096)
+        if not chunk:
+            break
+        buf += chunk
+        while b"\n" in buf:
+            line, buf = buf.split(b"\n", 1)
+            if not line.decode(errors="replace").startswith(WATCHED):
+                continue
+            now = covered()
+            if now != state:
+                state = now
+                mpv(now)
+
+
+if __name__ == "__main__":
+    main()

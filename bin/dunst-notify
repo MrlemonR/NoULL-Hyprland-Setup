@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
+
+TITLE="$1"
+BODY="$2"
+ICON="$3"
+
+TIMEOUT=2500
+
+BAR_LENGTH=32
+STEPS=50
+
+FILLED_CHAR='█'
+EMPTY_CHAR='░'
+
+# Icon boşsa varsayılan icon
+if [[ -z "$ICON" ]]; then
+    ICON="dialog-information"
+fi
+
+# Ana script PID'sini kaydet
+MAIN_PID=$$
+
+# İlk bildirimi oluştur
+ID=$(dunstify \
+    -p \
+    -a "DunstProxy" \
+    -i "$ICON" \
+    -t "$TIMEOUT" \
+    "$TITLE" \
+    "$BODY")
+
+if [[ -z "$ID" ]]; then
+    exit 1
+fi
+
+# ============================================================
+# BİLDİRİM KAPANINCA SCRIPTİ DURDUR
+# ============================================================
+
+(
+    dbus-monitor \
+        "type='signal',interface='org.freedesktop.Notifications',member='NotificationClosed'" |
+    while read -r line; do
+
+        if [[ "$line" == *"uint32 $ID"* ]]; then
+            kill -TERM "$MAIN_PID" 2>/dev/null
+            exit 0
+        fi
+
+    done
+) &
+
+WATCHER_PID=$!
+
+# Script kapanırken watcher'ı da kapat
+cleanup() {
+    kill "$WATCHER_PID" 2>/dev/null
+    wait "$WATCHER_PID" 2>/dev/null
+    exit 0
+}
+
+trap cleanup TERM INT
+
+# ============================================================
+# PROGRESS BAR
+# ============================================================
+
+for ((i=STEPS; i>=0; i--)); do
+
+    FILLED=$((i * BAR_LENGTH / STEPS))
+    EMPTY=$((BAR_LENGTH - FILLED))
+
+    BAR=""
+
+    for ((j=0; j<FILLED; j++)); do
+        BAR+="$FILLED_CHAR"
+    done
+
+    for ((j=0; j<EMPTY; j++)); do
+        BAR+="$EMPTY_CHAR"
+    done
+
+    dunstify \
+        -r "$ID" \
+        -a "DunstProxy" \
+        -i "$ICON" \
+        -t 300 \
+        "$TITLE" \
+        "$BODY"$'\n\n'"$BAR"
+
+    sleep 0.05
+done
+
+# ============================================================
+# NORMAL SÜRE SONU
+# ============================================================
+
+kill "$WATCHER_PID" 2>/dev/null
+wait "$WATCHER_PID" 2>/dev/null
+
+dunstify -C "$ID" 2>/dev/null

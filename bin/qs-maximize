@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+#
+# Super+H: "bar görünür kalan tam ekran".
+#
+# TEK pencereyi büyütmüyor: workspace'teki bütün pencerelerin boşluklarını
+# (gaps_in/gaps_out) ve kenarlığı sıfırlıyor, böylece kaç pencere varsa
+# hepsi birlikte ekranı doldurup aralarında boşluk kalmıyor. Bar yerinde
+# duruyor. Gerçek tam ekran Super+F, tek pencere maximize Super+F değil.
+
+set -u
+
+# decorations.lua'daki normal değerler
+GAPS_IN=3
+GAPS_OUT=8
+BORDER=2
+
+# DİKKAT: durumu pencereden okumak işe yaramıyor — boşluklar 0 olunca pencere
+# maximize olmadan da tam boyuta geliyor ve "fullscreen" alanı ile bizim
+# görsel durumumuz birbirinden kayıyor. Kendi durumumuzu tutuyoruz.
+STATE="${XDG_RUNTIME_DIR:-/run/user/1000}/qs-maximize.on"
+
+
+if [[ -e "$STATE" ]]; then
+    rm -f "$STATE"
+    "$HOME/.local/bin/qs-wallpaper-watch" --once 2>/dev/null || true
+    hyprctl eval "hl.config({ general = { gaps_in = $GAPS_IN, gaps_out = $GAPS_OUT, border_size = $BORDER } })" >/dev/null
+else
+    touch "$STATE"
+    "$HOME/.local/bin/qs-wallpaper-watch" --once 2>/dev/null || true
+    hyprctl eval 'hl.config({ general = { gaps_in = 0, gaps_out = 0, border_size = 0 } })' >/dev/null
+fi

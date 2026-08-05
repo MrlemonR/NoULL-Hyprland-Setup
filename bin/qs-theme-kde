@@ -1,0 +1,169 @@
+#!/usr/bin/env python3
+"""KDE/Qt uygulamalarının renk şemasını temaya göre yazar.
+
+Kvantum yalnızca pencere *stilini* belirliyor; gwenview gibi KDE uygulamaları
+metin/arka plan renklerini kdeglobals içindeki [Colors:*] bölümlerinden
+okuyor. Bu yüzden Kvantum'a ek olarak burayı da yazıyoruz.
+
+Kullanım: qs-theme-kde <tema>
+"""
+
+import json
+import os
+import re
+import sys
+
+KDEGLOBALS = os.path.expanduser("~/.config/kdeglobals")
+
+PALETTES_FILE = os.path.expanduser("~/.config/quickshell/palettes.json")
+
+
+def rgb(value):
+    """#rrggbb -> "r,g,b" (kdeglobals bu biçimi istiyor)."""
+    v = value.lstrip("#")
+    return "%d,%d,%d" % tuple(int(v[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def load_palette(theme):
+    """Renkler tek kaynaktan: ~/.config/quickshell/palettes.json (qs-palette)."""
+    try:
+        with open(PALETTES_FILE, encoding="utf-8") as handle:
+            raw = json.load(handle).get(theme)
+    except (OSError, ValueError):
+        return None
+    if raw is None:
+        return None
+    try:
+        return {
+            "bg": rgb(raw["base"]), "view": rgb(raw["mantle"]),
+            "text": rgb(raw["text"]), "window_text": rgb(raw["text"]),
+            "button": rgb(raw["surface0"]), "accent": rgb(raw["mauve"]),
+            "accent_text": rgb(raw["crust"]), "inactive": rgb(raw["overlay0"]),
+            "negative": rgb(raw["red"]), "positive": rgb(raw["green"]),
+            "neutral": rgb(raw["yellow"]), "link": rgb(raw["blue"]),
+            "border": rgb(raw["surface1"]),
+            "scheme": "".join(w.capitalize() for w in theme.replace("_", "-").split("-")),
+        }
+    except KeyError:
+        return None
+
+
+SECTIONS = ("Colors:Window", "Colors:View", "Colors:Button",
+            "Colors:Selection", "Colors:Tooltip", "Colors:Complementary",
+            "Colors:Header")
+
+
+def build(p):
+    lines = ["[General]",
+             f"ColorScheme={p['scheme']}",
+             "",
+             "[Colors:Selection]",
+             f"BackgroundNormal={p['accent']}",
+             f"BackgroundAlternate={p['accent']}",
+             f"ForegroundNormal={p['accent_text']}",
+             f"ForegroundInactive={p['accent_text']}",
+             f"ForegroundActive={p['accent_text']}",
+             f"ForegroundLink={p['link']}",
+             f"ForegroundNegative={p['negative']}",
+             f"ForegroundNeutral={p['neutral']}",
+             f"ForegroundPositive={p['positive']}",
+             f"DecorationFocus={p['accent']}",
+             f"DecorationHover={p['accent']}",
+             ""]
+
+    for section in ("Colors:Window", "Colors:Button", "Colors:Tooltip",
+                    "Colors:Complementary", "Colors:Header"):
+        background = p["button"] if section == "Colors:Button" else p["bg"]
+        lines += [f"[{section}]",
+                  f"BackgroundNormal={background}",
+                  f"BackgroundAlternate={p['view']}",
+                  f"ForegroundNormal={p['window_text']}",
+                  f"ForegroundInactive={p['inactive']}",
+                  f"ForegroundActive={p['accent']}",
+                  f"ForegroundLink={p['link']}",
+                  f"ForegroundNegative={p['negative']}",
+                  f"ForegroundNeutral={p['neutral']}",
+                  f"ForegroundPositive={p['positive']}",
+                  f"DecorationFocus={p['accent']}",
+                  f"DecorationHover={p['accent']}",
+                  ""]
+
+    lines += ["[Colors:View]",
+              f"BackgroundNormal={p['view']}",
+              f"BackgroundAlternate={p['bg']}",
+              f"ForegroundNormal={p['text']}",
+              f"ForegroundInactive={p['inactive']}",
+              f"ForegroundActive={p['accent']}",
+              f"ForegroundLink={p['link']}",
+              f"ForegroundNegative={p['negative']}",
+              f"ForegroundNeutral={p['neutral']}",
+              f"ForegroundPositive={p['positive']}",
+              f"DecorationFocus={p['accent']}",
+              f"DecorationHover={p['accent']}",
+              ""]
+
+    lines += ["[WM]",
+              f"activeBackground={p['bg']}",
+              f"activeForeground={p['text']}",
+              f"inactiveBackground={p['view']}",
+              f"inactiveForeground={p['inactive']}",
+              ""]
+
+    return "\n".join(lines)
+
+
+def keep_foreign_sections(existing, generated_sections):
+    """Renk dışı bölümleri (KDE'nin diğer ayarları) koru."""
+    kept = []
+    current = None
+    buffer = []
+
+    def flush():
+        if current is None:
+            return
+        name = current.strip("[]")
+        if name not in generated_sections:
+            kept.extend(buffer)
+
+    for line in existing.splitlines(keepends=True):
+        header = re.match(r"^\[([^\]]+)\]", line)
+        if header:
+            flush()
+            current = line.strip()
+            buffer = [line]
+        elif current is not None:
+            buffer.append(line)
+
+    flush()
+    return "".join(kept)
+
+
+def main():
+    if len(sys.argv) < 2:
+        sys.exit("kullanım: qs-theme-kde <tema>")
+
+    palette = load_palette(sys.argv[1])
+    if palette is None:
+        print(f"kde: '{sys.argv[1]}' için eşleme yok, atlandı")
+        return
+
+    generated = set(SECTIONS) | {"General", "WM"}
+
+    existing = ""
+    if os.path.isfile(KDEGLOBALS):
+        with open(KDEGLOBALS, encoding="utf-8", errors="replace") as handle:
+            existing = handle.read()
+
+    kept = keep_foreign_sections(existing, generated)
+
+    os.makedirs(os.path.dirname(KDEGLOBALS), exist_ok=True)
+    with open(KDEGLOBALS, "w", encoding="utf-8") as handle:
+        handle.write(build(palette))
+        if kept.strip():
+            handle.write("\n" + kept.lstrip("\n"))
+
+    print("kde: kdeglobals renk şeması yazıldı (uygulamalar yeniden açılınca)")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,72 @@
+{
+    "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
+    "logo": {
+        "type": "file",
+        "source": "~/.config/fastfetch/logo.txt",
+        "width": 20,
+        "height": 10,
+        "padding": {
+            "top": 3,
+            "left": 1,
+            "right": 2
+        }
+    },
+    "modules": [
+        {
+            "type": "title",
+            "keyWidth": 10
+        },
+        "break",
+        {
+            "type": "custom",
+            "key": " ",
+	    "format": "Arch (Btw)",
+            "keyColor": "31"
+        },
+        {
+            "type": "custom",
+	    "format": "MrLemon-PC",
+            "key": "🖥 ",
+            "keyColor": "31"
+        },
+        {
+            "type": "terminal",
+            "key": " ",
+            "keyColor": "31"
+        },
+        {
+            "type": "wm",
+            "key": " ",
+            "keyColor": "31"
+        },
+        {
+            "type": "cpu",
+            "format": "{1}",
+            "key": " ",
+            "keyColor": "31"
+        },
+        {
+            "type": "custom",
+            "format": "GeForce RTX 5060",
+            "key": " ",
+            "keyColor": "31"
+        },
+        {
+            "type": "memory",
+            "key": "󰍛 ",
+            "keyColor": "31"
+        },
+        {
+            "type": "swap",
+            "key": "󰾴 ",
+            "keyColor": "31"
+        },
+        {
+            "type": "uptime",
+            "key": " ",
+            "keyColor": "31"
+        },
+        "break"
+    ]
+}
+

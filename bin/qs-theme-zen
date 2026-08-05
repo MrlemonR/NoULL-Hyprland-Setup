@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+#
+# Zen Browser'ın arayüz renklerini temaya bağlar.
+#
+#   qs-theme-zen <tema>
+#
+# Zen'in bütün krom renkleri (sol sekme çubuğu dahil) iki değişkenden
+# türüyor: --zen-primary-color ve --zen-branding-dark/paper. Bunları
+# userChrome.css ile ezince sekme çubuğu, araç çubuğu, url çubuğu, menüler
+# hepsi birden temaya geçiyor. Workspace degradesi de
+# --zen-main-browser-background üzerinden düz renge çekiliyor.
+#
+# DİKKAT:
+#   * userChrome.css yalnızca AÇILIŞTA okunuyor. Tema değişince Zen açıksa
+#     renkler ancak kapatıp açınca gelir; canlı yeniden yükleme yok.
+#   * userChrome.css'in çalışması için
+#     toolkit.legacyUserProfileCustomizations.stylesheets = true gerekiyor;
+#     onu user.js ile garantiye alıyoruz (Zen kapalıyken prefs.js'e dokunmak
+#     çalışırken eziliyor).
+#   * Dosyada sadece kendi bloğumuzu yönetiyoruz, kullanıcının eklediği CSS
+#     korunuyor.
+
+set -u
+
+THEME="${1:-}"
+[[ -z "$THEME" ]] && { echo "kullanım: qs-theme-zen <tema>" >&2; exit 1; }
+
+ZEN_ROOT="$HOME/.config/zen"
+BEGIN="/* >>> qs-theme başlangıç — elle düzenlemeyin */"
+END="/* <<< qs-theme son */"
+
+# Renkler tek kaynaktan (bkz. qs-palette)
+if ! eval "$("$HOME/.local/bin/qs-palette" env "$THEME" 2>/dev/null)"; then
+    echo "zen: '$THEME' için palet yok, atlandı"; exit 0
+fi
+ACCENT="$MAUVE"
+
+if [[ ! -d "$ZEN_ROOT" ]]; then
+    echo "zen: profil dizini yok ($ZEN_ROOT), atlandı"
+    exit 0
+fi
+
+css_block() {
+    cat <<EOF
+$BEGIN
+/* tema: $THEME */
+@namespace url("http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul");
+
+:root {
+  /* Zen paletinin kökü: geri kalan her renk bunlardan türetiliyor */
+  --zen-primary-color: $ACCENT !important;
+  --zen-branding-dark: $BASE !important;
+  --zen-branding-paper: $BASE !important;
+
+  /* Bu ikisi türetilmiyor, sabit yazılmış */
+  --zen-themed-toolbar-bg-transparent: $MANTLE !important;
+  --zen-dialog-background: $BASE !important;
+
+  /* Workspace degradesi yerine düz tema rengi (JS inline yazıyor,
+     !important onu geçiyor) */
+  --zen-main-browser-background: $BASE !important;
+  --zen-main-browser-background-toolbar: $MANTLE !important;
+
+  /* Türetilmiş hâlleri tek renkli temada okunmaz oluyor, sabitliyoruz */
+  --zen-colors-border: $SURFACE1 !important;
+  --zen-colors-hover-bg: $SURFACE1 !important;
+  --zen-colors-primary-foreground: $TEXT !important;
+  --zen-colors-input-bg: $SURFACE0 !important;
+  --zen-urlbar-background: $MANTLE !important;
+  --zen-toolbar-element-bg: $SURFACE0 !important;
+  --zen-toolbar-element-bg-hover: $SURFACE1 !important;
+
+  /* Firefox tarafı */
+  --toolbar-bgcolor: $MANTLE !important;
+  --tab-selected-bgcolor: $SURFACE0 !important;
+  --lwt-sidebar-background-color: $MANTLE !important;
+  --lwt-sidebar-text-color: $TEXT !important;
+  --newtab-background-color: $BASE !important;
+}
+
+/* Sol sekme çubuğunun zemini. Değişkenleri ezmek yetmiyor: workspace
+   degradesi bu katmanların ARKASINDA duruyor ve JS ile eleman üzerine
+   yazıldığı için :root'taki değer ona ulaşmıyor. Doğrudan boyuyoruz. */
+#navigator-toolbox,
+#titlebar,
+#nav-bar,
+#zen-appcontent-navbar-container {
+  background-color: $MANTLE !important;
+}
+
+#zen-main-app-wrapper {
+  background-color: $BASE !important;
+}
+
+.zen-browser-generic-background::after,
+.zen-browser-generic-background::before {
+  background: $BASE !important;
+}
+
+.zen-browser-generic-background.zen-toolbar-background::after,
+.zen-browser-generic-background.zen-toolbar-background::before {
+  background: $MANTLE !important;
+}
+$END
+EOF
+}
+
+apply_to_profile() {
+    local profile="$1"
+    local chrome_dir="$profile/chrome"
+    local css="$chrome_dir/userChrome.css"
+    local userjs="$profile/user.js"
+
+    mkdir -p "$chrome_dir" || return 1
+
+    # Eski bloğu çıkar, kullanıcının kendi CSS'ini koru
+    local kept=""
+    if [[ -f "$css" ]]; then
+        kept=$(awk -v b="$BEGIN" -v e="$END" '
+            index($0, b) { skip = 1 }
+            !skip { print }
+            index($0, e) { skip = 0 }
+        ' "$css")
+    fi
+
+    {
+        css_block
+        if [[ -n "${kept//[[:space:]]/}" ]]; then
+            printf '\n%s\n' "$kept"
+        fi
+    } > "$css"
+
+    # userChrome.css'in okunması için gereken pref
+    local pref='user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);'
+    touch "$userjs"
+    if grep -q "legacyUserProfileCustomizations.stylesheets" "$userjs"; then
+        sed -i "s|^.*legacyUserProfileCustomizations\.stylesheets.*$|$pref|" "$userjs"
+    else
+        printf '%s\n' "$pref" >> "$userjs"
+    fi
+
+    echo "zen: $(basename "$profile") güncellendi"
+}
+
+count=0
+while IFS= read -r rel; do
+    [[ -z "$rel" ]] && continue
+    dir="$ZEN_ROOT/$rel"
+    [[ -d "$dir" ]] || continue
+    apply_to_profile "$dir" && count=$((count + 1))
+done < <(sed -n 's/^Path=//p' "$ZEN_ROOT/profiles.ini" 2>/dev/null)
+
+if (( count == 0 )); then
+    echo "zen: profiles.ini okunamadı, atlandı"
+    exit 0
+fi
+
+if pgrep -x zen-bin >/dev/null 2>&1 || pgrep -f "zen-browser" >/dev/null 2>&1; then
+    echo "zen: renkler yazıldı — Zen açık, kapatıp açınca uygulanır"
+else
+    echo "zen: renkler yazıldı ($THEME)"
+fi

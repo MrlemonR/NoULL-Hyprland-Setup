@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# btop için tema dosyası üretir ve btop.conf'u ona çevirir.
+# Kullanım: qs-theme-btop <tema>
+
+set -u
+
+THEME="${1:-}"
+DIR="$HOME/.config/btop/themes"
+CONF="$HOME/.config/btop/btop.conf"
+
+[[ -d "$HOME/.config/btop" ]] || { echo "btop: yapılandırma yok, atlandı"; exit 0; }
+
+if [[ ! -w "$DIR" ]]; then
+    echo "btop: $DIR yazılabilir değil (kök kullanıcıya ait), atlandı"
+    exit 0
+fi
+
+# Renkler tek kaynaktan (bkz. qs-palette)
+if ! eval "$("$HOME/.local/bin/qs-palette" env "$THEME" 2>/dev/null)"; then
+    echo "btop: bilinmeyen tema '$THEME', atlandı"; exit 0
+fi
+BG="$BASE"; FG="$TEXT"; DIM="$SURFACE1"; MID="$SURFACE2"
+ACC="$MAUVE"; OK="$GREEN"; WARN="$YELLOW"; BAD="$RED"
+C1="$BLUE"; C2="$CYAN"; C3="$PINK"
+
+OUT="$DIR/qs-$THEME.theme"
+cat > "$OUT" <<EOF
+# qs-theme tarafından üretildi — tema: $THEME
+theme[main_bg]="$BG"
+theme[main_fg]="$FG"
+theme[title]="$FG"
+theme[hi_fg]="$ACC"
+theme[selected_bg]="$DIM"
+theme[selected_fg]="$FG"
+theme[inactive_fg]="$MID"
+theme[graph_text]="$FG"
+theme[meter_bg]="$DIM"
+theme[proc_misc]="$C1"
+theme[cpu_box]="$DIM"
+theme[mem_box]="$DIM"
+theme[net_box]="$DIM"
+theme[proc_box]="$DIM"
+theme[div_line]="$DIM"
+theme[temp_start]="$C1"
+theme[temp_mid]="$WARN"
+theme[temp_end]="$BAD"
+theme[cpu_start]="$OK"
+theme[cpu_mid]="$WARN"
+theme[cpu_end]="$BAD"
+theme[free_start]="$C2"
+theme[free_mid]="$C1"
+theme[free_end]="$ACC"
+theme[cached_start]="$C1"
+theme[cached_mid]="$ACC"
+theme[cached_end]="$C3"
+theme[available_start]="$WARN"
+theme[available_mid]="$WARN"
+theme[available_end]="$BAD"
+theme[used_start]="$OK"
+theme[used_mid]="$WARN"
+theme[used_end]="$BAD"
+theme[download_start]="$C2"
+theme[download_mid]="$C1"
+theme[download_end]="$ACC"
+theme[upload_start]="$WARN"
+theme[upload_mid]="$C3"
+theme[upload_end]="$BAD"
+theme[process_start]="$C1"
+theme[process_mid]="$ACC"
+theme[process_end]="$BAD"
+EOF
+
+if [[ -f "$CONF" ]]; then
+    if grep -q '^color_theme' "$CONF"; then
+        sed -i "s|^color_theme.*|color_theme = \"qs-$THEME\"|" "$CONF"
+    else
+        printf 'color_theme = "qs-%s"\n' "$THEME" >> "$CONF"
+    fi
+fi
+
+echo "btop: qs-$THEME.theme yazıldı, color_theme ayarlandı (btop yeniden açılınca geçerli)"
+exit 0

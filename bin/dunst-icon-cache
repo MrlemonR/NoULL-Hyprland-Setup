@@ -1,0 +1,288 @@
+#!/usr/bin/env python3
+"""
+dunst-icon-cache
+================
+
+Bildirimleri D-Bus üzerinden dinler ve uygulamanın gönderdiği GERÇEK ikonu
+(Discord/Vesktop avatarı, sunucu resmi vb.) PNG olarak diske yazar.
+
+Neden gerekli:
+  Vesktop gibi uygulamalar avatarı "image-data" hint'i içinde ham piksel
+  verisi olarak yollar. Dunst bunu ekranda gösterir ama bir dosya yolu
+  olmadığı için script'e aktaramaz -> DUNST_ICON_PATH boş gelir ve
+  dunst-forward uygulama ikonuna (vesktop.svg) düşmek zorunda kalır.
+
+  Bu servis aynı D-Bus mesajını paralel olarak yakalar, ham veriyi PNG'ye
+  çevirip önbelleğe yazar. dunst-forward de oradan okur.
+
+Yazılan dosyalar ($XDG_CACHE_HOME/dunst-proxy-icons/):
+  <hash>.png    ham veriden üretilen ikon
+  <hash>.info   o bildirim için kullanılacak ikon (yol veya tema ismi, boş olabilir)
+  .running      servisin PID'i (dunst-forward boşuna beklemesin diye)
+"""
+
+import hashlib
+import os
+import re
+import signal
+import sys
+import time
+
+import gi
+
+gi.require_version("GdkPixbuf", "2.0")
+from gi.repository import GdkPixbuf, GLib  # noqa: E402
+
+import dbus  # noqa: E402
+from dbus.mainloop.glib import DBusGMainLoop  # noqa: E402
+
+try:  # GLib.unix_signal_add yeni sürümlerde GLibUnix'e taşındı
+    gi.require_version("GLibUnix", "2.0")
+    from gi.repository import GLibUnix
+
+    def unix_signal_add(sig, handler):
+        return GLibUnix.signal_add(GLib.PRIORITY_HIGH, sig, handler)
+
+except (ValueError, ImportError):
+
+    def unix_signal_add(sig, handler):
+        return GLib.unix_signal_add(GLib.PRIORITY_HIGH, sig, handler)
+
+NOTIFY_IFACE = "org.freedesktop.Notifications"
+SELF_APP = "DunstProxy"  # kendi ürettiğimiz bildirimler (dunst-notify)
+
+CACHE_DIR = os.path.join(
+    os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"),
+    "dunst-proxy-icons",
+)
+PID_FILE = os.path.join(CACHE_DIR, ".running")
+
+MAX_AGE = 180        # önbellek dosyalarının ömrü (saniye)
+PRUNE_INTERVAL = 30  # temizliğin en sık çalışma aralığı (saniye)
+
+# Ham ikon verisini taşıyabilecek hint isimleri (öncelik sırasıyla)
+RAW_HINTS = ("image-data", "image_data", "icon_data")
+PATH_HINTS = ("image-path", "image_path")
+
+# ---------------------------------------------------------------------------
+# Anahtar üretimi
+#
+# DİKKAT: buradaki normalize/hash mantığı dunst-forward içindekiyle birebir
+# aynı olmak zorunda, yoksa iki taraf birbirini bulamaz.
+# ---------------------------------------------------------------------------
+
+TAG_RE = re.compile(r"<[^>]*>")
+WS_RE = re.compile(r"[ \t\n\r]+")
+ENTITIES = (
+    ("&lt;", "<"),
+    ("&gt;", ">"),
+    ("&quot;", '"'),
+    ("&apos;", "'"),
+    ("&#39;", "'"),
+    ("&amp;", "&"),  # en sonda olmalı
+)
+
+
+def normalize(text):
+    text = TAG_RE.sub("", text or "")
+    for src, dst in ENTITIES:
+        text = text.replace(src, dst)
+    return WS_RE.sub(" ", text).strip(" ")
+
+
+def cache_key(*parts):
+    joined = "\x1f".join(normalize(p) for p in parts)
+    return hashlib.sha1(joined.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Dosya işlemleri
+# ---------------------------------------------------------------------------
+
+
+def write_atomic(path, write_fn):
+    tmp = "%s.tmp%d" % (path, os.getpid())
+    try:
+        write_fn(tmp)
+        os.replace(tmp, path)
+        return True
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        return False
+
+
+def save_raw_icon(image, path):
+    """image-data hint'ini (iiibiiay) PNG olarak kaydeder."""
+    try:
+        width, height, rowstride, has_alpha, bits, channels = (int(v) for v in image[:6])
+        data = bytes(image[6])
+    except Exception:
+        return False
+
+    if width <= 0 or height <= 0 or bits != 8 or channels not in (3, 4):
+        return False
+
+    # GdkPixbuf kanal sayısı ile has_alpha'nın tutarlı olmasını ister
+    has_alpha = channels == 4
+    if rowstride < width * channels:
+        rowstride = width * channels
+    if len(data) < rowstride * (height - 1) + width * channels:
+        return False
+
+    pixbuf = GdkPixbuf.Pixbuf.new_from_bytes(
+        GLib.Bytes.new(data),
+        GdkPixbuf.Colorspace.RGB,
+        has_alpha,
+        bits,
+        width,
+        height,
+        rowstride,
+    )
+    return write_atomic(path, lambda tmp: pixbuf.savev(tmp, "png", [], []))
+
+
+def write_info(key, icon):
+    path = os.path.join(CACHE_DIR, key + ".info")
+
+    def _write(tmp):
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(icon + "\n")
+
+    write_atomic(path, _write)
+
+
+_last_prune = 0.0
+
+
+def prune():
+    """Eskimiş önbellek dosyalarını siler."""
+    global _last_prune
+    now = time.time()
+    if now - _last_prune < PRUNE_INTERVAL:
+        return
+    _last_prune = now
+
+    try:
+        entries = os.listdir(CACHE_DIR)
+    except OSError:
+        return
+
+    for name in entries:
+        if name.startswith("."):
+            continue
+        path = os.path.join(CACHE_DIR, name)
+        try:
+            if now - os.stat(path).st_mtime > MAX_AGE:
+                os.unlink(path)
+        except OSError:
+            pass
+
+
+# ---------------------------------------------------------------------------
+# D-Bus dinleyici
+# ---------------------------------------------------------------------------
+
+
+def resolve_path_hint(value):
+    """image-path hint'i file:// URI de olabilir, düz yol da, tema ismi de."""
+    value = str(value)
+    if value.startswith("file://"):
+        try:
+            return GLib.filename_from_uri(value)[0]
+        except Exception:
+            return ""
+    return value
+
+
+def handle_notify(app, summary, body, hints):
+    key_full = cache_key(app, summary, body)
+    key_app = cache_key(app, summary)
+
+    icon = ""
+
+    for hint in RAW_HINTS:
+        if hint in hints:
+            png = os.path.join(CACHE_DIR, key_full + ".png")
+            if save_raw_icon(hints[hint], png):
+                icon = png
+            break
+
+    if not icon:
+        for hint in PATH_HINTS:
+            if hint in hints:
+                icon = resolve_path_hint(hints[hint])
+                break
+
+    # İkon bulunamamış olsa bile .info yazıyoruz: dunst-forward böylece
+    # "bu bildirim işlendi, ham ikon yok" bilgisini anında alıp beklemeden
+    # yedek seçeneğe geçebiliyor.
+    write_info(key_full, icon)
+    write_info(key_app, icon)
+
+
+def message_filter(_bus, message):
+    try:
+        if message.get_member() != "Notify":
+            return
+        if message.get_interface() != NOTIFY_IFACE:
+            return
+
+        args = message.get_args_list(byte_arrays=True)
+        if len(args) < 7:
+            return
+
+        app, _replaces_id, _app_icon, summary, body, _actions, hints = args[:7]
+        if str(app) == SELF_APP:
+            return
+
+        handle_notify(str(app), str(summary), str(body), hints)
+        prune()
+    except Exception as exc:  # dinleyici hiçbir mesajda çökmemeli
+        print("dunst-icon-cache: %s" % exc, file=sys.stderr)
+
+
+def main():
+    os.makedirs(CACHE_DIR, exist_ok=True)
+
+    DBusGMainLoop(set_as_default=True)
+    bus = dbus.SessionBus(private=True)
+
+    bus.add_message_filter(message_filter)
+
+    # BecomeMonitor'dan sonra bu bağlantı üzerinden mesaj gönderilemez,
+    # o yüzden en son çağrılıyor.
+    monitoring = dbus.Interface(
+        bus.get_object("org.freedesktop.DBus", "/org/freedesktop/DBus"),
+        "org.freedesktop.DBus.Monitoring",
+    )
+    monitoring.BecomeMonitor(
+        ["type='method_call',interface='%s',member='Notify'" % NOTIFY_IFACE],
+        dbus.UInt32(0),
+    )
+
+    with open(PID_FILE, "w", encoding="utf-8") as fh:
+        fh.write("%d\n" % os.getpid())
+
+    loop = GLib.MainLoop()
+
+    def shutdown(*_args):
+        try:
+            os.unlink(PID_FILE)
+        except OSError:
+            pass
+        loop.quit()
+
+    unix_signal_add(signal.SIGTERM, shutdown)
+    unix_signal_add(signal.SIGINT, shutdown)
+
+    try:
+        loop.run()
+    finally:
+        shutdown()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+#
+# Bir dosya için önizleme görüntüsü üretir ve yolunu yazdırır.
+# Resimler doğrudan kendisi, PDF'lerin ilk sayfası PNG'ye çevrilir.
+# Diğer türlerde çıktı boş kalır (arayüz o zaman sadece bilgi gösterir).
+#
+# Kullanım: qs-file-preview /tam/yol
+
+set -u
+
+FILE="${1:-}"
+[[ -z "$FILE" || ! -f "$FILE" ]] && exit 0
+
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/qs-file-preview"
+mkdir -p "$CACHE"
+
+lower="${FILE,,}"
+
+case "$lower" in
+    *.png|*.jpg|*.jpeg|*.webp|*.gif|*.bmp|*.svg)
+        printf '%s' "$FILE"
+        exit 0
+        ;;
+    *.pdf)
+        key=$(printf '%s' "$FILE" | sha1sum | cut -d' ' -f1)
+        out="$CACHE/$key"
+        if [[ ! -f "$out.png" ]]; then
+            pdftoppm -png -f 1 -l 1 -r 60 "$FILE" "$out" >/dev/null 2>&1 || exit 0
+            # pdftoppm "-1" gibi ek sonlar koyabiliyor, ilk üretileni normalize et
+            if [[ ! -f "$out.png" ]]; then
+                first=$(ls "$out"-*.png 2>/dev/null | head -1)
+                [[ -n "$first" ]] && mv "$first" "$out.png"
+            fi
+        fi
+        [[ -f "$out.png" ]] && printf '%s' "$out.png"
+        exit 0
+        ;;
+esac
+
+exit 0

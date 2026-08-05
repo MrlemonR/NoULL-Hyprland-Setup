@@ -1,0 +1,209 @@
+#!/usr/bin/env python3
+"""YouTube Music Desktop'un KENDİ başlık çubuğunu temaya boyar.
+
+Neden ayrı script: o şerit uygulamanın pencere çerçevesi, YouTube web
+görünümü değil. customCSSPath yalnızca web görünümüne enjekte ediliyor, yani
+qs-theme-ytmd oraya ulaşamıyor. Rengi uygulamanın paketinde
+(/opt/ytmdesktop/resources/app.asar) sabit yazılı, dolayısıyla paketi
+yamalamak gerekiyor — bu da root istiyor.
+
+    sudo qs-ytmd-titlebar            # etkin temaya göre yamalar
+    sudo qs-ytmd-titlebar monochrome # belirli bir temaya göre
+    sudo qs-ytmd-titlebar --restore  # orijinal paketi geri koyar
+
+DİKKAT:
+  * Uygulama güncellenince paket değişir ve yama uçar; güncellemeden sonra
+    tekrar çalıştırmak gerekir.
+  * Orijinal paket app.asar.qs-backup olarak saklanıyor, --restore onu
+    geri koyuyor.
+  * Yamadan sonra uygulamayı kapatıp açmak gerekiyor.
+"""
+
+import json
+import os
+import re
+import shutil
+import struct
+import sys
+
+ASAR = "/opt/ytmdesktop/resources/app.asar"
+BACKUP = ASAR + ".qs-backup"
+
+def config_home():
+    """sudo ile çalışırken HOME /root oluyor; asıl kullanıcıya bak."""
+    user = os.environ.get("SUDO_USER")
+    if user:
+        return os.path.expanduser("~" + user)
+    return os.path.expanduser("~")
+
+
+PALETTES_FILE = os.path.join(config_home(), ".config/quickshell/palettes.json")
+
+
+def load_palette(theme):
+    """Renkler tek kaynaktan: ~/.config/quickshell/palettes.json (qs-palette).
+
+    Yeni tema eklerken burayı değil o dosyayı düzenlemek yeterli.
+    """
+    try:
+        with open(PALETTES_FILE, encoding="utf-8") as handle:
+            raw = json.load(handle).get(theme)
+    except (OSError, ValueError):
+        return None
+    if raw is None:
+        return None
+    try:
+        return {
+            "bar": raw["mantle"], "text": raw["text"],
+            "muted": raw["subtext0"], "hover": raw["surface0"],
+        }
+    except KeyError:
+        return None
+
+
+def read_asar(path):
+    with open(path, "rb") as handle:
+        blob = handle.read()
+
+    header_len = struct.unpack("<I", blob[12:16])[0]
+    header = json.loads(blob[16:16 + header_len].decode("utf-8"))
+    data_start = 16 + (header_len + 3 & ~3)
+    return header, blob[data_start:]
+
+
+def walk(node, prefix=""):
+    for name, value in node.get("files", {}).items():
+        if "files" in value:
+            yield from walk(value, prefix + "/" + name)
+        else:
+            yield prefix + "/" + name, value
+
+
+def write_asar(path, header, files):
+    """files: [(node, content_bytes)] — sırayla yeniden dizip offsetleri kurar."""
+    data = bytearray()
+    for node, content in files:
+        node["offset"] = str(len(data))
+        node["size"] = len(content)
+        data += content
+
+    text = json.dumps(header, separators=(",", ":")).encode("utf-8")
+    pad = (4 - len(text) % 4) % 4
+    text += b"\0" * pad
+
+    out = struct.pack("<I", 4)
+    out += struct.pack("<I", 8 + len(text))
+    out += struct.pack("<I", 4 + len(text))
+    out += struct.pack("<I", len(text) - pad)
+    out += text
+    out += bytes(data)
+
+    tmp = path + ".qs-tmp"
+    with open(tmp, "wb") as handle:
+        handle.write(out)
+    shutil.copymode(path, tmp)
+    os.replace(tmp, path)
+
+
+def patch_main(text, palette):
+    """Pencere kontrollerinin arkasındaki siyah blok.
+
+    O şerit CSS değil: Electron'un kendi çizdiği titleBarOverlay katmanı,
+    rengi main/index.js içinde sabit ("#000000"). Üç pencerede de geçiyor
+    (ana pencere, ayarlar, companion yetkilendirme).
+    """
+    p = palette
+    return re.subn(
+        r'titleBarOverlay:\{color:"[^"]*",symbolColor:"[^"]*"',
+        f'titleBarOverlay:{{color:"{p["bar"]}",symbolColor:"{p["muted"]}"',
+        text,
+    )
+
+
+def patch_css(text, palette):
+    p = palette
+    # Küçültülmüş CSS'te bu renkler yalnızca başlık çubuğu kuralında geçiyor
+    replacements = [
+        (r"background-color:#000\b", "background-color:" + p["bar"]),
+        (r"color:#eee\b", "color:" + p["text"]),
+        (r"color:#bbb\b", "color:" + p["muted"]),
+        (r"color:#b4b4b4\b", "color:" + p["muted"]),
+        (r"background-color:#222\b", "background-color:" + p["hover"]),
+    ]
+    hits = 0
+    for pattern, value in replacements:
+        text, count = re.subn(pattern, value, text)
+        hits += count
+    return text, hits
+
+
+def current_theme():
+    path = os.path.join(config_home(), ".config/quickshell/theme.txt")
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return handle.read().strip()
+    except OSError:
+        return "catppuccin-mocha"
+
+
+def main():
+    arg = sys.argv[1] if len(sys.argv) > 1 else ""
+
+    if not os.path.isfile(ASAR):
+        sys.exit(f"ytmd-titlebar: {ASAR} yok")
+
+    if arg == "--restore":
+        if not os.path.isfile(BACKUP):
+            sys.exit("ytmd-titlebar: yedek yok, geri alınacak bir şey yok")
+        shutil.copy2(BACKUP, ASAR)
+        print("ytmd-titlebar: orijinal paket geri kondu (uygulamayı yeniden başlat)")
+        return
+
+    if os.geteuid() != 0:
+        sys.exit("ytmd-titlebar: root gerekiyor — 'sudo qs-ytmd-titlebar' çalıştır")
+
+    theme = arg or current_theme()
+    palette = load_palette(theme)
+    if palette is None:
+        sys.exit(f"ytmd-titlebar: '{theme}' için eşleme yok")
+
+    # Yedek yoksa şimdiki (temiz) paketi sakla
+    if not os.path.isfile(BACKUP):
+        shutil.copy2(ASAR, BACKUP)
+        print(f"ytmd-titlebar: yedek alındı -> {BACKUP}")
+
+    # Yamayı her zaman ORİJİNAL paketten üret, üst üste binmesin
+    header, data = read_asar(BACKUP)
+
+    files = []
+    patched = 0
+    for name, node in walk(header):
+        if "offset" not in node:
+            files.append((node, b""))
+            continue
+        offset = int(node["offset"])
+        content = data[offset:offset + node["size"]]
+
+        if re.search(r"TitleBar.*\.css$", name):
+            text, hits = patch_css(content.decode("utf-8"), palette)
+            if hits:
+                content = text.encode("utf-8")
+                patched += hits
+        elif name.endswith("main/index.js"):
+            text, hits = patch_main(content.decode("utf-8"), palette)
+            if hits:
+                content = text.encode("utf-8")
+                patched += hits
+
+        files.append((node, content))
+
+    if not patched:
+        sys.exit("ytmd-titlebar: başlık çubuğu CSS'i bulunamadı, dokunulmadı")
+
+    write_asar(ASAR, header, files)
+    print(f"ytmd-titlebar: {patched} renk yamandı ({theme}) — "
+          "uygulamayı kapatıp aç")
+
+
+if __name__ == "__main__":
+    main()

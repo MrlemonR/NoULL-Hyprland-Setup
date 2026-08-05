@@ -1,0 +1,186 @@
+#!/usr/bin/env bash
+#
+# Tek bir temayı sistem genelinde uygular.
+#
+#   qs-theme                 -> etkin temayı yazdırır
+#   qs-theme list            -> kullanılabilir temaları yazdırır
+#   qs-theme catppuccin-mocha
+#   qs-theme monochrome
+#
+# Dokunduğu yerler:
+#   quickshell : ~/.config/quickshell/theme.txt   (bar canlı olarak okur)
+#   kitty      : ~/.config/kitty/current-theme.conf + SIGUSR1 ile yeniden yükleme
+#   gtk 3/4    : settings.ini + gsettings ile tema adı (tema kuruluysa)
+#   qt/kde     : ~/.config/Kvantum/kvantum.kvconfig (tema kuruluysa)
+#   nvim       : ~/.config/nvim/lua/qs-theme.lua    (theme-sync eklentisi okur)
+#   hyprland   : ~/.config/hypr/config/theme.lua    (pencere kenarlık renkleri,
+#                hyprctl ile canlı olarak da uygulanıyor)
+
+set -u
+
+BIN="$HOME/.local/bin"
+
+# Temalar ve renkler tek kaynaktan: ~/.config/quickshell/palettes.json
+mapfile -t THEMES < <("$BIN/qs-palette" list)
+
+QS_STATE="$HOME/.config/quickshell/theme.txt"
+
+current_theme() {
+    if [[ -r "$QS_STATE" ]]; then
+        tr -d '[:space:]' < "$QS_STATE"
+    else
+        printf 'catppuccin-mocha'
+    fi
+}
+
+case "${1:-}" in
+    "")
+        current_theme
+        echo
+        exit 0
+        ;;
+    list)
+        printf '%s\n' "${THEMES[@]}"
+        exit 0
+        ;;
+esac
+
+THEME="$1"
+
+valid=0
+for t in "${THEMES[@]}"; do
+    [[ "$t" == "$THEME" ]] && valid=1
+done
+if (( ! valid )); then
+    echo "qs-theme: unknown theme '$THEME'" >&2
+    printf 'available: %s\n' "${THEMES[*]}" >&2
+    exit 1
+fi
+
+# ============================================================
+# Palet
+# ============================================================
+
+# Palet: qs-palette env BASE, MANTLE, TEXT, MAUVE … değişkenlerini veriyor
+# (GTK_THEME_NAME, KVANTUM_THEME, NVIM_SCHEME de oradan geliyor)
+eval "$("$BIN/qs-palette" env "$THEME")"
+SUBTEXT="$SUBTEXT0"
+
+# ============================================================
+# 1. quickshell
+# ============================================================
+
+mkdir -p "$(dirname "$QS_STATE")"
+printf '%s' "$THEME" > "$QS_STATE"
+echo "quickshell: $THEME"
+
+# ============================================================
+# 2. kitty
+# ============================================================
+
+KITTY_THEME="$HOME/.config/kitty/current-theme.conf"
+if [[ -d "$HOME/.config/kitty" ]]; then
+    cat > "$KITTY_THEME" <<EOF
+# qs-theme tarafından üretildi — elle düzenlemeyin, qs-theme <tema> çalıştırın
+# tema: $THEME
+
+foreground              $TEXT
+background              $BASE
+selection_foreground    $BASE
+selection_background    $TEXT
+
+cursor                  $TEXT
+cursor_text_color       $BASE
+
+url_color               $BLUE
+
+active_border_color     $MAUVE
+inactive_border_color   $SURFACE1
+bell_border_color       $YELLOW
+
+active_tab_foreground   $CRUST
+active_tab_background   $MAUVE
+inactive_tab_foreground $TEXT
+inactive_tab_background $MANTLE
+tab_bar_background      $CRUST
+
+color0 $SURFACE1
+color8 $SURFACE2
+color1 $RED
+color9 $RED
+color2 $GREEN
+color10 $GREEN
+color3 $YELLOW
+color11 $YELLOW
+color4 $BLUE
+color12 $BLUE
+color5 $PINK
+color13 $PINK
+color6 $CYAN
+color14 $CYAN
+color7 $SUBTEXT
+color15 $TEXT
+EOF
+    # DİKKAT: kitty'nin otomatik tema özelliği var — config dizininde
+    # dark-theme.auto.conf varsa sistem koyu moddayken onu uygulayıp
+    # current-theme.conf'u eziyor. Bu yüzden aynı içeriği oraya da yazıyoruz.
+    for auto in dark-theme.auto.conf light-theme.auto.conf no-preference-theme.auto.conf; do
+        if [[ -f "$HOME/.config/kitty/$auto" ]]; then
+            cp "$KITTY_THEME" "$HOME/.config/kitty/$auto"
+        fi
+    done
+
+    if pgrep -x kitty >/dev/null 2>&1; then
+        pkill -USR1 -x kitty 2>/dev/null || true
+        echo "kitty: tema yazıldı, çalışan pencereler yenilendi"
+    else
+        echo "kitty: tema yazıldı"
+    fi
+fi
+
+# ============================================================
+# 3-7. Diğer hedefler
+#
+# Her hedef ayrı bir küçük script: gtk, qt/kvantum, kde, dunst, btop, ytmd.
+# Biri başarısız olsa diğerleri etkilenmiyor.
+# ============================================================
+
+for helper in qs-theme-gtk qs-theme-kvantum qs-theme-kde qs-theme-dunst qs-theme-btop qs-theme-ytmd qs-theme-hypr qs-theme-zen; do
+    if [[ -x "$BIN/$helper" ]]; then
+        "$BIN/$helper" "$THEME" || echo "${helper#qs-theme-}: başarısız, atlandı"
+    fi
+done
+
+# ============================================================
+# 8. nvim
+#
+# ~/.config/nvim/lua yazılabilirse tema adını oraya da bırakıyoruz;
+# qs-theme-sync.lua zaten ~/.config/quickshell/theme.txt dosyasını okuyor.
+# ============================================================
+
+NVIM_STATE="$HOME/.config/nvim/lua/qs-theme.lua"
+if [[ -w "$(dirname "$NVIM_STATE")" ]]; then
+    cat > "$NVIM_STATE" <<EOF
+-- qs-theme tarafından üretildi — elle düzenlemeyin
+return {
+  theme = "$THEME",
+  colorscheme = "$NVIM_SCHEME",
+}
+EOF
+    echo "nvim: qs-theme.lua yazıldı (colorscheme=$NVIM_SCHEME)"
+else
+    echo "nvim: theme.txt üzerinden okunacak (colorscheme=$NVIM_SCHEME)"
+fi
+
+# ============================================================
+# 9. Duvar kağıdı
+#
+# Her temanın kendi son duvar kağıdı var; bu temada en son ne seçildiyse
+# ona geçiyoruz. Aynı resimse animasyon oynatılmıyor.
+# ============================================================
+
+if [[ -x "$BIN/qs-wallpaper" ]]; then
+    "$BIN/qs-wallpaper" apply-theme "$THEME" || true
+fi
+
+echo "done: $THEME"

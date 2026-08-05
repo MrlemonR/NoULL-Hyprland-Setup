@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+"""Tema paletlerinin TEK kaynağı: ~/.config/quickshell/palettes.json
+
+Bütün tema scriptleri ve quickshell renkleri oradan okuyor. Yeni tema
+eklemek = o dosyaya bir blok eklemek; başka hiçbir yeri düzenlemek gerekmiyor.
+
+    qs-palette list                 -> tema adları
+    qs-palette labels               -> "ad<TAB>görünen ad"
+    qs-palette get <tema> <anahtar> -> tek değer (birden çok anahtar da olur)
+    qs-palette json <tema>          -> paletin tamamı JSON
+    qs-palette env <tema>           -> BASE=..., MANTLE=... (bash: eval "$(...)")
+
+Root olarak çalışınca (qs-ytmd-titlebar) HOME /root olduğu için dosyayı
+asıl kullanıcının ev dizininde arıyoruz.
+"""
+
+import json
+import os
+import shlex
+import sys
+
+
+def config_home():
+    user = os.environ.get("SUDO_USER")
+    if user and os.geteuid() == 0:
+        return os.path.expanduser("~" + user)
+    return os.path.expanduser("~")
+
+
+PATH = os.path.join(config_home(), ".config/quickshell/palettes.json")
+
+
+def load():
+    try:
+        with open(PATH, encoding="utf-8") as handle:
+            return json.load(handle)
+    except (OSError, ValueError) as exc:
+        sys.exit(f"qs-palette: {PATH} okunamadı ({exc})")
+
+
+def palette(name):
+    data = load()
+    found = data.get(name)
+    if found is None:
+        sys.exit(f"qs-palette: '{name}' diye bir tema yok")
+    return found
+
+
+def main():
+    args = sys.argv[1:]
+    if not args:
+        sys.exit(__doc__)
+
+    command = args[0]
+
+    if command == "list":
+        for name in load():
+            print(name)
+        return
+
+    if command == "labels":
+        for name, values in load().items():
+            print(f"{name}\t{values.get('label', name)}")
+        return
+
+    if len(args) < 2:
+        sys.exit(f"kullanım: qs-palette {command} <tema> …")
+
+    values = palette(args[1])
+
+    if command == "json":
+        json.dump(values, sys.stdout, indent=2, ensure_ascii=False)
+        print()
+        return
+
+    if command == "env":
+        for key, value in values.items():
+            # base -> BASE, gtkTheme -> GTK_THEME, dangerBg -> DANGER_BG
+            name = "".join(("_" + c if c.isupper() else c.upper()) for c in key)
+            print(f"{name}={shlex.quote(str(value))}")
+        return
+
+    if command == "get":
+        if len(args) < 3:
+            sys.exit("kullanım: qs-palette get <tema> <anahtar> [anahtar…]")
+        for key in args[2:]:
+            if key not in values:
+                sys.exit(f"qs-palette: '{args[1]}' paletinde '{key}' yok")
+            print(values[key])
+        return
+
+    sys.exit(f"qs-palette: bilinmeyen komut '{command}'")
+
+
+if __name__ == "__main__":
+    main()

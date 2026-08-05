@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+#
+# Bu makinedeki kurulumu bir git reposuna çıkarır.
+#
+#   qs-export ~/Projects/hyprland-setup
+#
+# install.sh'ın beklediği düzeni üretir; ikisi birlikte gidiyor.
+#
+# İLKE: kurulumu birebir tekrar üretebilecek HER ŞEY girer, üretilebilen ve
+# kişisel olan HİÇBİR ŞEY girmez.
+#   * girenler   : configler, scriptler, fontlar, temalar, ikonlar, duvar kağıtları
+#   * girmeyenler: qs-theme'in ürettikleri (gtk.css, theme.lua, btop temaları,
+#     kitty current-theme, Kvantum qs-*), takvim notları, pano geçmişi/pinleri,
+#     favoriler, oturum durumu, .git klasörleri
+
+set -euo pipefail
+
+DEST="${1:-}"
+[[ -z "$DEST" ]] && { echo "kullanım: qs-export <hedef-dizin>" >&2; exit 1; }
+
+CFG="$HOME/.config"
+SHARE="$HOME/.local/share"
+
+mkdir -p "$DEST"/{config,local/share,bin}
+
+copy_dir() {           # copy_dir <kaynak> <hedef> [rsync ek argümanları...]
+    local src="$1" dst="$2"; shift 2
+    [[ -d "$src" ]] || { echo "  - atlandı (yok): ${src/#$HOME/\~}"; return 0; }
+    mkdir -p "$dst"
+    rsync -aL --delete \
+        --exclude='.git' --exclude='.venv' --exclude='venv' \
+        --exclude='__pycache__' --exclude='node_modules' --exclude='*.pyc' \
+        "$@" "$src/" "$dst/"
+}
+
+copy_file() {
+    local src="$1" dst="$2"
+    [[ -f "$src" ]] || return 0
+    mkdir -p "$(dirname "$dst")"
+    cp "$src" "$dst"
+}
+
+echo "config/"
+# Hyprland — üretilen theme.lua ve hyprpaper.conf hariç
+copy_dir "$CFG/hypr" "$DEST/config/hypr" \
+    --exclude='hyprpaper.conf' --exclude='config/theme.lua'
+
+# quickshell — TAMAMI. topbar/ dışındaki svg ikonlar (tepsi oku, medya
+# düğmeleri) ve modules/runcat (koşan kedi) da gerekiyor
+copy_dir "$CFG/quickshell" "$DEST/config/quickshell" \
+    --exclude='generated/' --exclude='favorites.json' \
+    --exclude='clipboard-pins.json' --exclude='wallpapers.conf' \
+    --exclude='wallpaper.txt' --exclude='wallpaper-defaults.conf'
+
+# kitty — kitty.conf yalnızca include satırlarından ibaret; KittyLemon.conf ve
+# arka plan resimleri olmadan terminal düzgün açılmıyor
+copy_dir "$CFG/kitty" "$DEST/config/kitty" \
+    --exclude='current-theme.conf' --exclude='*-theme.auto.conf'
+
+copy_dir "$CFG/fish"      "$DEST/config/fish"
+copy_dir "$CFG/fastfetch" "$DEST/config/fastfetch"
+copy_dir "$CFG/dunst"     "$DEST/config/dunst"
+copy_dir "$CFG/nvim"      "$DEST/config/nvim"
+copy_dir "$CFG/qt6ct"     "$DEST/config/qt6ct"
+
+# Dolphin ve KDE tarafı. kdeglobals BİLEREK yok: onu qs-theme-kde üretiyor,
+# repoya girerse kurulumda temanın renkleri yerine benimkiler sabitlenir.
+copy_file "$CFG/dolphinrc"        "$DEST/config/dolphinrc"
+copy_file "$CFG/kiorc"            "$DEST/config/kiorc"
+copy_file "$CFG/kservicemenurc"   "$DEST/config/kservicemenurc"
+copy_dir  "$SHARE/dolphin"        "$DEST/local/share/dolphin"
+copy_dir  "$SHARE/kxmlgui5"       "$DEST/local/share/kxmlgui5"
+
+# btop — üretilen qs-* temaları hariç
+copy_dir "$CFG/btop" "$DEST/config/btop" --exclude='themes/qs-*'
+
+# Kvantum — kaynak catppuccin teması ŞART: qs-theme-kvantum diğer bütün
+# temaları onu yeniden renklendirerek üretiyor
+copy_dir "$CFG/Kvantum" "$DEST/config/Kvantum" \
+    --exclude='qs-*' --exclude='kvantum.kvconfig'
+
+# GTK — yalnızca settings.ini (gtk.css'i qs-theme-gtk üretiyor)
+copy_file "$CFG/gtk-3.0/settings.ini" "$DEST/config/gtk-3.0/settings.ini"
+copy_file "$CFG/gtk-4.0/settings.ini" "$DEST/config/gtk-4.0/settings.ini"
+
+echo "local/share/"
+# Fontlar olmadan koşan kedi (runcat.ttf) ve bar ikonları çıkmıyor
+copy_dir "$SHARE/fonts"        "$DEST/local/share/fonts"
+copy_dir "$SHARE/themes"       "$DEST/local/share/themes"
+copy_dir "$SHARE/icons"        "$DEST/local/share/icons"
+copy_dir "$SHARE/applications" "$DEST/local/share/applications"
+
+echo "docs/"
+# Devir teslim belgesi: bütün gotcha'lar burada
+copy_file "$HOME/Documents/PROJECT.md" "$DEST/PROJECT.md"
+
+echo "bin/"
+mkdir -p "$DEST/bin"
+for f in "$HOME"/.local/bin/qs-* "$HOME"/.local/bin/dunst-* "$HOME"/.local/bin/screenshot; do
+    [[ -f "$f" ]] && cp "$f" "$DEST/bin/"
+done
+
+echo "wallpapers"
+# İki ayrı arşiv: sabit resimler her zaman, videolar ayrı. Videolar tek başına
+# 200MB+ tutuyor; ayrı dosya olunca GitHub'ın 100MB dosya sınırına takılırsa
+# yalnızca o arşivi LFS'e almak ya da atlamak yetiyor.
+WP="$HOME/Pictures/Wallpapers"
+rm -f "$DEST/wallpapers.zip" "$DEST/wallpapers-animated.zip"
+
+if [[ -d "$WP" ]]; then
+    ( cd "$WP" && zip -rq "$DEST/wallpapers.zip" . -x '*/Animated/*' )
+    echo "  wallpapers.zip          $(du -h "$DEST/wallpapers.zip" | cut -f1)"
+
+    # Videolar 200MB+ tuttuğu için PARÇALI arşiv: GitHub'ın 100MB dosya
+    # sınırına takılmasın diye 90MB'lık parçalara bölünüyor
+    # (wallpapers-animated.z01, .z02, … + .zip). install.sh birleştirip açıyor.
+    rm -f "$DEST"/wallpapers-animated.z*
+    if find "$WP" -path '*/Animated/*' -type f -print -quit | grep -q .; then
+        ( cd "$WP" && zip -rq -s 90m "$DEST/wallpapers-animated.zip" . -i '*/Animated/*' )
+        parts=$(ls "$DEST"/wallpapers-animated.z* 2>/dev/null | wc -l)
+        echo "  wallpapers-animated    $parts parça, toplam $(du -ch "$DEST"/wallpapers-animated.z* | tail -1 | cut -f1)"
+    fi
+fi
+
+cat <<EOF
+
+çıkarıldı -> $DEST
+  config/      $(find "$DEST/config" -type f | wc -l) dosya
+  local/share/ $(find "$DEST/local" -type f | wc -l) dosya
+  bin/         $(find "$DEST/bin" -type f | wc -l) script
+  PROJECT.md   $([[ -f "$DEST/PROJECT.md" ]] && echo var || echo yok)
+  toplam       $(du -sh "$DEST" | cut -f1)
+EOF

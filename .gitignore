@@ -1,0 +1,27 @@
+# qs-theme'in ürettikleri — install.sh çalışınca oluşuyor
+config/quickshell/generated/
+config/hypr/hyprpaper.conf
+config/hypr/config/theme.lua
+config/kitty/current-theme.conf
+config/kitty/*-theme.auto.conf
+config/btop/themes/qs-*
+config/Kvantum/qs-*
+config/Kvantum/kvantum.kvconfig
+config/gtk-3.0/gtk.css
+config/gtk-4.0/gtk.css
+
+# kişisel durum
+config/quickshell/favorites.json
+config/quickshell/clipboard-pins.json
+config/quickshell/wallpapers.conf
+config/quickshell/wallpaper.txt
+
+# çöp
+**/.venv/
+**/__pycache__/
+**/node_modules/
+*.pyc
+
+# Duvar kağıtları wallpapers.zip olarak giriyor (qs-export üretiyor).
+# Açılmış klasör yanlışlıkla eklenmesin:
+wallpapers/

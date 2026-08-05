@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+#
+# Klavye düzenini değiştirir ve hangi düzene geçildiğini klavye ikonlu bir
+# bildirimle gösterir.
+
+set -u
+
+hyprctl switchxkblayout all next >/dev/null 2>&1
+
+# Ana klavyenin yeni düzenini oku
+LAYOUT=$(hyprctl devices -j 2>/dev/null | python3 -c '
+import json, sys
+
+try:
+    devices = json.load(sys.stdin)
+except Exception:
+    print("")
+    raise SystemExit
+
+keyboards = devices.get("keyboards", [])
+main = next((k for k in keyboards if k.get("main")), None)
+if main is None and keyboards:
+    main = keyboards[0]
+
+print(main.get("active_keymap", "") if main else "")
+')
+
+[[ -z "$LAYOUT" ]] && LAYOUT="Unknown"
+
+notify-send \
+    --icon "input-keyboard" \
+    --expire-time 2000 \
+    "Keyboard Layout" \
+    "$LAYOUT"

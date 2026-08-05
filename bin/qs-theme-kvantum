@@ -1,0 +1,129 @@
+#!/usr/bin/env python3
+"""Kvantum (Qt/KDE) teması uygular; monochrome için tema üretir.
+
+Hazır bir monochrome Kvantum teması olmadığı için mevcut catppuccin temasını
+kopyalayıp içindeki bütün renkleri gri tonlarına çeviriyoruz — .kvconfig ve
+.svg dosyalarındaki hex renkleri parlaklık değerine indiriyoruz.
+
+Kullanım: qs-theme-kvantum <tema>
+"""
+
+import json
+import os
+import re
+import shutil
+import sys
+
+KV_DIR = os.path.expanduser("~/.config/Kvantum")
+SOURCE = "catppuccin-mocha-mauve"
+GENERATED_PREFIX = "qs-"
+PALETTES_FILE = os.path.expanduser("~/.config/quickshell/palettes.json")
+
+# Kaynak tema catppuccin olduğu için onun hexleri hedef paletin karşılıklarıyla
+# değiştiriliyor. Eşleşmeyen renkler (gölge, vurgu tonları) olduğu gibi kalıyor.
+SOURCE_KEYS = {
+    "base": "#1e1e2e", "mantle": "#181825", "crust": "#11111b",
+    "surface0": "#313244", "surface1": "#45475a", "surface2": "#585b70",
+    "overlay0": "#6c7086", "subtext0": "#a6adc8", "subtext1": "#bac2de",
+    "text": "#cdd6f4", "mauve": "#cba6f7", "blue": "#89b4fa", "red": "#f38ba8",
+    "green": "#a6e3a1", "yellow": "#f9e2af", "peach": "#fab387",
+    "pink": "#f5c2e7", "cyan": "#94e2d5",
+}
+
+HEX = re.compile(r"#([0-9a-fA-F]{6})\b")
+
+
+def recolor(match, palette):
+    """Catppuccin hexini hedef paletin karşılığıyla değiştir."""
+    value = "#" + match.group(1).lower()
+    for key, source_hex in SOURCE_KEYS.items():
+        if value == source_hex:
+            return palette.get(key, value)
+    return value
+
+
+def to_gray(match):
+    value = match.group(1)
+    r, g, b = (int(value[i:i + 2], 16) for i in (0, 2, 4))
+    # Göz duyarlılığına göre parlaklık
+    level = round(0.2126 * r + 0.7152 * g + 0.0722 * b)
+    level = max(0, min(255, level))
+    return "#{0:02x}{0:02x}{0:02x}".format(level)
+
+
+def build_theme(theme, palette):
+    generated = GENERATED_PREFIX + theme
+    src = os.path.join(KV_DIR, SOURCE)
+    dst = os.path.join(KV_DIR, generated)
+
+    if not os.path.isdir(src):
+        return None
+
+    os.makedirs(dst, exist_ok=True)
+
+    for name in os.listdir(src):
+        src_file = os.path.join(src, name)
+        if not os.path.isfile(src_file):
+            continue
+
+        # Dosya adları tema adıyla eşleşmek zorunda
+        new_name = name.replace(SOURCE, generated)
+        dst_file = os.path.join(dst, new_name)
+
+        if name.endswith((".kvconfig", ".svg")):
+            with open(src_file, encoding="utf-8", errors="replace") as handle:
+                content = handle.read()
+            content = HEX.sub(lambda m: recolor(m, palette), content)
+            if name.endswith(".kvconfig"):
+                content = content.replace(SOURCE, generated)
+            with open(dst_file, "w", encoding="utf-8") as handle:
+                handle.write(content)
+        else:
+            shutil.copy2(src_file, dst_file)
+
+    return dst
+
+
+def set_theme(name):
+    conf = os.path.join(KV_DIR, "kvantum.kvconfig")
+    os.makedirs(KV_DIR, exist_ok=True)
+    with open(conf, "w", encoding="utf-8") as handle:
+        handle.write(f"[General]\ntheme={name}\n")
+
+
+def main():
+    if len(sys.argv) < 2:
+        sys.exit("kullanım: qs-theme-kvantum <tema>")
+
+    theme = sys.argv[1]
+
+    try:
+        with open(PALETTES_FILE, encoding="utf-8") as handle:
+            palette = json.load(handle).get(theme)
+    except (OSError, ValueError):
+        palette = None
+
+    if palette is None:
+        print(f"kvantum: '{theme}' için palet yok, atlandı")
+        return
+
+    # Kurulu hazır tema varsa onu kullan (catppuccin)
+    ready = palette.get("kvantumTheme") or ""
+    if ready and os.path.isdir(os.path.join(KV_DIR, ready)):
+        set_theme(ready)
+        print(f"kvantum: {ready}")
+        return
+
+    # Yoksa catppuccin temasını hedef paletle yeniden renklendirip üret.
+    # DİKKAT: bu olmadan Kvantum catppuccin renklerinde kalıyor ve Qt/KDE
+    # uygulamaları (gwenview, featherpad) tema değişimini hiç görmüyor.
+    generated = build_theme(theme, palette)
+    if generated is None:
+        print(f"kvantum: kaynak tema '{SOURCE}' yok, üretilemedi")
+        return
+    set_theme(os.path.basename(generated))
+    print(f"kvantum: {os.path.basename(generated)} üretildi ve etkinleştirildi")
+
+
+if __name__ == "__main__":
+    main()

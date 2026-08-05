@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+#
+# Ev dizininde dosya arar. Başlatıcının Files sekmesi bunu kullanıyor.
+#
+# Kullanım: qs-file-search <sorgu> [limit]
+# Çıktı:    /tam/yol<TAB>boyut-bayt<TAB>değişme-zamanı-epoch
+
+set -u
+
+QUERY="${1:-}"
+LIMIT="${2:-60}"
+
+[[ -z "$QUERY" ]] && exit 0
+
+# Gürültülü dizinleri atla
+find "$HOME" \
+    -maxdepth 6 \
+    \( -type d \( -name '.*' \
+                  -o -name 'node_modules' \
+                  -o -name '__pycache__' \
+                  -o -name 'venv' \
+                  -o -name 'target' \
+                  -o -name 'yay-bin' \) -prune \) \
+    -o -type f -iname "*${QUERY}*" -printf '%p\t%s\t%T@\n' \
+    2>/dev/null | head -n "$LIMIT"
+
+exit 0

@@ -1,0 +1,203 @@
+#!/usr/bin/env bash
+#
+# Ekran görüntüsü yardımcısı. quickshell'deki arayüz bunu çağırıyor.
+#
+#   qs-screenshot freeze   -> ekranı dondur (arayüzün arka planı), yolu yazdır
+#   qs-screenshot region   -> alan seç, geçici dosyaya al
+#   qs-screenshot window   -> pencere seç, geçici dosyaya al
+#   qs-screenshot screen   -> tüm ekranı al
+#   qs-screenshot save     -> son görüntüyü Pictures/Screenshots'a taşı + panoya
+#   qs-screenshot discard  -> son görüntüyü sadece panoya koy, dosyayı sil
+#
+# Yakalama sonrası görüntünün yolu stdout'a yazılır (arayüz önizleme için
+# kullanıyor). hyprshot yerine doğrudan grim/slurp kullanıyoruz: hyprshot
+# kendi bildirimlerini gönderiyor ve dosya yolunu bize düzgün vermiyor.
+
+set -u
+
+PENDING="${XDG_CACHE_HOME:-$HOME/.cache}/qs-screenshot-pending.png"
+
+# Arayüz açılırken alınan tam ekran görüntüsü. Arayüzün arka planında
+# gösterilip ekranın donmuş görünmesini sağlıyor; seçimler de canlı ekrandan
+# değil bu görüntüden kırpılıyor, böylece seçtiğin an ile yakalanan an aynı.
+FREEZE="${XDG_CACHE_HOME:-$HOME/.cache}/qs-screenshot-freeze.png"
+OUTDIR="$HOME/Pictures/Screenshots"
+
+# Seçim katmanının rengi temaya göre
+THEME_FILE="$HOME/.config/quickshell/theme.txt"
+SELECT_COLOR="#cba6f7"
+if [[ -r "$THEME_FILE" ]] && [[ "$(tr -d '[:space:]' < "$THEME_FILE")" == "monochrome" ]]; then
+    SELECT_COLOR="#e0e0e0"
+fi
+
+# Takılı kalmış bir slurp örneği kendi overlay katmanını üstte tutuyor ve
+# yeni seçimin girdi almasını engelliyor. Yenisini başlatmadan önce temizle.
+# Tüm monitörlerin dikdörtgenleri (slurp'e stdin olarak veriliyor)
+monitor_boxes() {
+    hyprctl monitors -j 2>/dev/null | python3 -c "
+import json, sys
+
+try:
+    monitors = json.load(sys.stdin)
+except Exception:
+    raise SystemExit
+
+for m in monitors:
+    print(str(m['x']) + ',' + str(m['y']) + ' ' + str(m['width']) + 'x' + str(m['height']))
+"
+}
+
+# slurp "X,Y WxH" veriyor; magick "WxH+X+Y" istiyor
+crop_from_freeze() {
+    local geometry="$1"
+    local origin size
+
+    origin="${geometry%% *}"
+    size="${geometry##* }"
+
+    magick "$FREEZE" -crop "${size}+${origin//,/+}" +repage "$PENDING" 2>/dev/null
+}
+
+# Dondurulmuş görüntü varsa ondan kırp, yoksa canlı ekrandan al
+capture_geometry() {
+    local geometry="$1"
+
+    if [[ -f "$FREEZE" ]]; then
+        crop_from_freeze "$geometry" && return 0
+    fi
+    grim -g "$geometry" "$PENDING"
+}
+
+kill_stale_slurp() {
+    if pgrep -x slurp >/dev/null 2>&1; then
+        pkill -x slurp 2>/dev/null || true
+        # Katmanın gerçekten kalkması için kısa bir bekleme
+        for _ in 1 2 3 4 5 6 7 8 9 10; do
+            pgrep -x slurp >/dev/null 2>&1 || break
+            sleep 0.05
+        done
+        sleep 0.1
+    fi
+}
+
+capture_region() {
+    kill_stale_slurp
+
+    local boxes geometry
+
+    # DİKKAT: slurp yalnızca stdin bir TERMİNAL olduğunda serbest seçim yapıyor.
+    # Aksi halde stdin'i "önceden tanımlı kutu listesi" sanıyor:
+    #   - açık boru (quickshell'in verdiği) -> EOF bekleyip hiç çizmiyor
+    #   - /dev/null -> boş liste okuyup anında çıkıyor
+    # Çözüm: monitör dikdörtgenlerini besleyip -r KULLANMAMAK. Liste geçerli
+    # oluyor, -r olmadığı için seçim serbest kalıyor.
+    boxes=$(monitor_boxes)
+    [[ -z "$boxes" ]] && return 1
+
+    geometry=$(printf '%s\n' "$boxes" | slurp -d -b "#00000080" -c "${SELECT_COLOR}ff" -w 2 2>/dev/null)
+    [[ -z "$geometry" ]] && return 1
+
+    capture_geometry "$geometry"
+}
+
+capture_window() {
+    # Pencere listesini slurp'a ver, kullanıcı birini seçsin
+    local boxes geometry
+    boxes=$(hyprctl clients -j 2>/dev/null | python3 -c '
+import json, sys
+try:
+    clients = json.load(sys.stdin)
+except Exception:
+    raise SystemExit
+
+active = None
+try:
+    import subprocess
+    ws = json.loads(subprocess.run(["hyprctl", "activeworkspace", "-j"],
+                                   capture_output=True, text=True).stdout)
+    active = ws.get("id")
+except Exception:
+    pass
+
+for c in clients:
+    if not c.get("mapped") or c.get("hidden"):
+        continue
+    if active is not None and c.get("workspace", {}).get("id") != active:
+        continue
+    x, y = c["at"]
+    w, h = c["size"]
+    if w > 0 and h > 0:
+        print(f"{x},{y} {w}x{h}")
+')
+    [[ -z "$boxes" ]] && return 1
+
+    kill_stale_slurp
+    geometry=$(printf '%s\n' "$boxes" | slurp -r -b "#00000080" -c "${SELECT_COLOR}ff" -w 2 2>/dev/null) || return 1
+    [[ -z "$geometry" ]] && return 1
+    capture_geometry "$geometry"
+}
+
+capture_screen() {
+    # Dondurulmuş görüntü zaten tam ekran
+    if [[ -f "$FREEZE" ]]; then
+        cp "$FREEZE" "$PENDING"
+        return 0
+    fi
+
+    local monitor
+    monitor=$(hyprctl activeworkspace -j 2>/dev/null | python3 -c '
+import json, sys
+try:
+    print(json.load(sys.stdin).get("monitor", ""))
+except Exception:
+    print("")
+')
+    if [[ -n "$monitor" ]]; then
+        grim -o "$monitor" "$PENDING"
+    else
+        grim "$PENDING"
+    fi
+}
+
+case "${1:-}" in
+freeze)
+    grim "$FREEZE" 2>/dev/null || exit 1
+    printf '%s' "$FREEZE"
+    exit 0
+    ;;
+
+region) capture_region || exit 1 ;;
+window) capture_window || exit 1 ;;
+screen) capture_screen || exit 1 ;;
+
+save)
+    [[ -f "$PENDING" ]] || exit 1
+    mkdir -p "$OUTDIR"
+    name="screenshot-$(date +%Y%m%d-%H%M%S).png"
+    cp "$PENDING" "$OUTDIR/$name"
+    wl-copy --type image/png < "$PENDING"
+    rm -f "$PENDING" "$FREEZE"
+    printf '%s' "$OUTDIR/$name"
+    exit 0
+    ;;
+
+discard)
+    [[ -f "$PENDING" ]] || exit 1
+    wl-copy --type image/png < "$PENDING"
+    rm -f "$PENDING" "$FREEZE"
+    exit 0
+    ;;
+
+cancel)
+    rm -f "$PENDING" "$FREEZE"
+    exit 0
+    ;;
+
+*)
+    echo "kullanım: qs-screenshot region|window|screen|save|discard|cancel" >&2
+    exit 1
+    ;;
+esac
+
+[[ -f "$PENDING" ]] && printf '%s' "$PENDING"
+exit 0

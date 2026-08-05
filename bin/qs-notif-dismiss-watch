@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+#
+# Kullanıcının tıklayarak kapattığı bildirimleri dunst geçmişinden siler,
+# böylece topbar'daki bildirim merkezinde tekrar görünmezler.
+#
+# org.freedesktop.Notifications.NotificationClosed sinyalinin ikinci alanı
+# kapanma sebebi:
+#   1 = süresi doldu   2 = kullanıcı kapattı   3 = program kapattı   4 = diğer
+# Sadece 2'yi siliyoruz; süresi dolanlar merkezde kalmaya devam etsin.
+
+set -u
+
+vals=()
+
+dbus-monitor "type='signal',interface='org.freedesktop.Notifications',member='NotificationClosed'" |
+while read -r line; do
+    case "$line" in
+        signal*)
+            vals=()
+            ;;
+        *uint32*)
+            vals+=("${line##*uint32 }")
+            ;;
+    esac
+
+    if (( ${#vals[@]} >= 2 )); then
+        id="${vals[0]// /}"
+        reason="${vals[1]// /}"
+        vals=()
+
+        if [[ "$reason" == "2" && "$id" =~ ^[0-9]+$ ]]; then
+            dunstctl history-rm "$id" >/dev/null 2>&1 || true
+        fi
+    fi
+done

@@ -1,0 +1,233 @@
+#!/usr/bin/env python3
+"""YouTube Music Desktop App'in özel CSS'ini temaya bağlar.
+
+Uygulama Ayarlar > Appearance > Custom CSS altında bir CSS dosyası kabul
+ediyor. Biz dosyayı üretiyoruz, config.json içindeki customCSSPath alanı da
+ona bakıyor.
+
+DİKKAT — uygulama çökmesin diye iki kural var (app.asar içindeki
+CustomCSSPlugin'den okundu):
+
+1. CSS dosyası fs.watch ile izleniyor. Olay "change" ise CSS anında yeniden
+   yükleniyor (uygulamayı kapatıp açmaya gerek yok). Olay "rename" ise
+   uygulama customCSSPath'i null yapıp izlemeyi bırakıyor — bu yüzden CSS'i
+   geçici dosya + rename ile DEĞİL, yerinde (truncate + write) yazıyoruz.
+
+2. config.json'a dokunmuyoruz. Uygulama çalışırken kendi durumunu
+   (lastVideoId, windowBounds…) sürekli oraya yazıyor; bizim tam dosya
+   yeniden yazışımız hem onun yazdığıyla yarışıyor hem de store'un dosya
+   izleyicisini tetikleyip uygulamayı düşürüyordu. Alan zaten doğruysa —
+   ki ilk kurulumdan sonra hep doğru — hiç yazmıyoruz.
+
+Kullanım: qs-theme-ytmd <tema>
+"""
+
+import json
+import os
+import subprocess
+import sys
+
+CONFIG = os.path.expanduser("~/.config/YouTube Music Desktop App/config.json")
+CSS_DIR = os.path.expanduser("~/.config/quickshell/generated")
+CSS_PATH = os.path.join(CSS_DIR, "ytmdesktop.css")
+
+PALETTES_FILE = os.path.expanduser("~/.config/quickshell/palettes.json")
+
+
+def load_palette(theme):
+    """Renkler tek kaynaktan: ~/.config/quickshell/palettes.json (qs-palette).
+
+    Yeni tema eklerken burayı değil o dosyayı düzenlemek yeterli.
+    """
+    try:
+        with open(PALETTES_FILE, encoding="utf-8") as handle:
+            raw = json.load(handle).get(theme)
+    except (OSError, ValueError):
+        return None
+    if raw is None:
+        return None
+    try:
+        return {
+            "base": raw["base"], "mantle": raw["mantle"], "crust": raw["crust"],
+            "surface0": raw["surface0"], "surface1": raw["surface1"],
+            "text": raw["text"], "subtext": raw["subtext0"],
+            "accent": raw["mauve"],
+        }
+    except KeyError:
+        return None
+
+
+def css(p):
+    return f"""/* qs-theme tarafından üretildi — elle düzenlemeyin */
+
+html, body, ytmusic-app, ytmusic-app-layout {{
+  --yt-spec-base-background: {p['base']} !important;
+  --yt-spec-raised-background: {p['mantle']} !important;
+  --yt-spec-menu-background: {p['mantle']} !important;
+  --yt-spec-inverted-background: {p['text']} !important;
+  --yt-spec-text-primary: {p['text']} !important;
+  --yt-spec-text-secondary: {p['subtext']} !important;
+  --yt-spec-icon-active-other: {p['text']} !important;
+  --yt-spec-icon-inactive: {p['subtext']} !important;
+  --yt-spec-static-overlay-background-heavy: {p['crust']} !important;
+  --yt-spec-10-percent-layer: {p['surface0']} !important;
+  --yt-spec-outline: {p['surface1']} !important;
+  --ytmusic-brand-icon: {p['accent']} !important;
+  background-color: {p['base']} !important;
+}}
+
+ytmusic-nav-bar,
+ytmusic-player-bar,
+#nav-bar-background,
+tp-yt-app-toolbar {{
+  background: {p['mantle']} !important;
+  border-color: {p['surface1']} !important;
+}}
+
+ytmusic-guide-renderer,
+#mini-guide-background,
+tp-yt-app-drawer,
+ytmusic-guide-section-renderer {{
+  background: {p['mantle']} !important;
+}}
+
+/* --- Liste / albüm / sanatçı sayfaları ---------------------------------
+   YouTube Music bu sayfalarda kapak resminden bir renk katmanı üretiyor.
+   Tema rengiyle uyuşmadığı için sayfanın ortasında keskin bir renk sınırı
+   oluşuyordu (üst yarı kapak rengi, alt yarı tema rengi).
+
+   ytmusic-browse-response'un light DOM'unda sadece iki çocuk var:
+     1) #background.immersive-background  -> degradeyi çizen katman
+     2) .background-gradient              -> SAYFA İÇERİĞİ BUNUN İÇİNDE
+
+   DİKKAT — denenip elenen yollar:
+     * display:none  -> içerik .background-gradient'in içinde olduğu için
+       tüm liste kayboluyor.
+     * #background'a background:transparent / background-image:none -> hiç
+       tutmuyor, degrade CSS'ten erişilebilir bir arka plan değil.
+   Çalışan yol: kardeş katmana (2) opak tema rengi vermek. Boyama sırası
+   gereği altındaki degradeyi tamamen örtüyor, içerik de üstünde kalıyor. */
+ytmusic-browse-response > .background-gradient,
+ytmusic-browse-response > .background-gradient.style-scope {{
+  background-color: {p['base']} !important;
+  background-image: none !important;
+}}
+
+html, body,
+ytmusic-app,
+ytmusic-app-layout,
+ytmusic-app-layout > [slot="content"],
+ytmusic-browse-response,
+ytmusic-search-page,
+ytmusic-tabbed-search-results-renderer {{
+  background-color: {p['base']} !important;
+}}
+
+/* "Şu an çalıyor" sayfası (kapak + sıradaki + sözler). Zemini çizen eleman
+   #player-page; kapak renginden türetilen koyu zemin yerine tema rengi. */
+#player-page,
+ytmusic-player-page {{
+  background-color: {p['base']} !important;
+}}
+
+#player-page ytmusic-player-queue-item:hover,
+#player-page tp-yt-paper-tab[aria-selected="true"] {{
+  background-color: {p['surface0']} !important;
+}}
+
+tp-yt-paper-progress::part(primary-progress),
+#progressContainer #primaryProgress,
+ytmusic-player-bar tp-yt-paper-slider #sliderBar #primaryProgress {{
+  background-color: {p['accent']} !important;
+}}
+
+ytmusic-responsive-list-item-renderer[selected],
+ytmusic-responsive-list-item-renderer:hover,
+ytmusic-player-queue-item[selected] {{
+  background: {p['surface0']} !important;
+}}
+
+tp-yt-paper-dialog,
+tp-yt-iron-dropdown .dropdown-content,
+ytmusic-menu-popup-renderer {{
+  background: {p['surface0']} !important;
+  color: {p['text']} !important;
+}}
+
+::-webkit-scrollbar {{ width: 10px; height: 10px; }}
+::-webkit-scrollbar-track {{ background: {p['mantle']}; }}
+::-webkit-scrollbar-thumb {{ background: {p['surface1']}; border-radius: 0; }}
+::-webkit-scrollbar-thumb:hover {{ background: {p['accent']}; }}
+"""
+
+
+def app_running():
+    return subprocess.run(
+        ["pgrep", "-f", "youtube-music-desktop-app"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    ).returncode == 0
+
+
+def write_css(text):
+    # Yerinde yaz: fs.watch "change" görsün, "rename" görmesin (bkz. başlık).
+    with open(CSS_PATH, "w", encoding="utf-8") as handle:
+        handle.write(text)
+
+
+def link_config():
+    """Gerekirse config.json'daki customCSS alanlarını düzeltir."""
+    if not os.path.isfile(CONFIG):
+        print("ytmd: config.json bulunamadı, atlandı")
+        return
+
+    try:
+        with open(CONFIG, encoding="utf-8") as handle:
+            config = json.load(handle)
+    except (OSError, ValueError) as exc:
+        print(f"ytmd: config.json okunamadı ({exc}), sadece CSS yazıldı")
+        return
+
+    appearance = config.get("appearance") or {}
+    if appearance.get("customCSSEnabled") is True \
+            and appearance.get("customCSSPath") == CSS_PATH:
+        # Zaten bağlı. Uygulama CSS'i kendisi izliyor, dosyaya dokunmak yok.
+        return
+
+    if app_running():
+        print("ytmd: uygulama açık — config.json'a dokunulmadı. "
+              "Custom CSS bağlı değilse uygulamayı kapatıp açın.")
+        return
+
+    config.setdefault("appearance", {})
+    config["appearance"]["customCSSEnabled"] = True
+    config["appearance"]["customCSSPath"] = CSS_PATH
+
+    tmp = CONFIG + ".qs-tmp"
+    with open(tmp, "w", encoding="utf-8") as handle:
+        json.dump(config, handle, indent="\t")
+    os.replace(tmp, CONFIG)
+    print("ytmd: config.json'da özel CSS bağlandı")
+
+
+def main():
+    if len(sys.argv) < 2:
+        sys.exit("kullanım: qs-theme-ytmd <tema>")
+
+    palette = load_palette(sys.argv[1])
+    if palette is None:
+        print(f"ytmd: '{sys.argv[1]}' için eşleme yok, atlandı")
+        return
+
+    os.makedirs(CSS_DIR, exist_ok=True)
+    write_css(css(palette))
+    link_config()
+    print("ytmd: özel CSS yazıldı (uygulama açıksa anında uygulanır)")
+
+    # Başlık çubuğu uygulamanın kendi paketinde; daha önce yamalandıysa
+    # tema değişince tekrar yamamak gerekiyor (root istiyor, biz yapamayız).
+    if os.path.isfile("/opt/ytmdesktop/resources/app.asar.qs-backup"):
+        print("ytmd: başlık çubuğu için -> sudo qs-ytmd-titlebar")
+
+
+if __name__ == "__main__":
+    main()

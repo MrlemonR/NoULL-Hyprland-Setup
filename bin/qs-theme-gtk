@@ -1,0 +1,311 @@
+#!/usr/bin/env python3
+"""GTK 3/4 renklerini etkin temaya göre ayarlar.
+
+Nasıl çalıştığı (ve neden böyle):
+
+* GTK3 uygulamaları (pavucontrol) tema adını settings.ini / gsettings'ten
+  alıyor. catppuccin'de kurulu catppuccin temasını kullanıyoruz; monochrome'da
+  hazır bir tema olmadığı için Adwaita-dark'a düşüp renkleri
+  ~/.config/gtk-3.0/gtk.css içindeki @define-color ile eziyoruz.
+
+* GTK4 / libadwaita uygulamaları (gnome-calculator, gnome-characters, renk
+  seçici) tema adını umursamıyor, yalnızca ~/.config/gtk-4.0/gtk.css okuyor.
+  DİKKAT: libadwaita 1.6'dan beri @define-color yerine CSS DEĞİŞKENLERİ
+  (:root { --window-bg-color: … }) geçerli. Burada libadwaita 1.9 var, o
+  yüzden ikisini birden yazıyoruz — eski @define-color'lar GTK3 ve eski
+  uygulamalar için duruyor.
+
+* DİKKAT: catppuccin teması renkleri CSS'ine 56 yerde sabit yazmış. Bu
+  yüzden gtk-4.0/gtk.css'te o temayı @import ETMİYORUZ; import edilirse
+  bizim değişkenlerimizin hiçbir etkisi kalmıyor.
+
+* DİKKAT: GTK_THEME ortam değişkeni bunların HEPSİNİ eziyor — sadece tema
+  adını değil, ~/.config/gtk-*/gtk.css'in yüklenmesini de engelliyor.
+  Değişkeni BOŞA ÇEKMEK yetmiyor, tamamen tanımsız olması gerekiyor
+  (deneyle doğrulandı). Hyprland environment.lua'da sabit catppuccin
+  yazıyordu, kaldırıldı; Hyprland çalışırken Lua API'siyle unset etmek
+  mümkün olmadığı için bu değişiklik ancak yeniden oturum açınca geçerli.
+
+Kullanım: qs-theme-gtk <tema>
+"""
+
+import json
+import os
+import re
+import subprocess
+import sys
+
+HOME = os.path.expanduser("~")
+GTK3 = os.path.join(HOME, ".config/gtk-3.0/gtk.css")
+GTK4 = os.path.join(HOME, ".config/gtk-4.0/gtk.css")
+SETTINGS3 = os.path.join(HOME, ".config/gtk-3.0/settings.ini")
+SETTINGS4 = os.path.join(HOME, ".config/gtk-4.0/settings.ini")
+
+CATPPUCCIN_THEME = "catppuccin-mocha-mauve-standard+default"
+NEUTRAL_THEME = "Adwaita-dark"
+
+START = "/* >>> qs-theme */"
+END = "/* <<< qs-theme */"
+
+PALETTES_FILE = os.path.expanduser("~/.config/quickshell/palettes.json")
+
+
+def load_palette(theme):
+    """Renkler tek kaynaktan: ~/.config/quickshell/palettes.json (qs-palette).
+
+    Yeni tema eklerken burayı değil o dosyayı düzenlemek yeterli.
+    """
+    try:
+        with open(PALETTES_FILE, encoding="utf-8") as handle:
+            raw = json.load(handle).get(theme)
+    except (OSError, ValueError):
+        return None
+    if raw is None:
+        return None
+    try:
+        return {
+            "base": raw["base"], "mantle": raw["mantle"], "crust": raw["crust"],
+            "surface0": raw["surface0"], "surface1": raw["surface1"],
+            "text": raw["text"], "accent": raw["mauve"], "danger": raw["red"],
+            "ok": raw["green"], "warn": raw["yellow"],
+            "theme_name": raw["gtkThemeName"],
+            "accent_name": raw["gtkAccentName"],
+        }
+    except KeyError:
+        return None
+
+
+def define_colors(p):
+    """GTK3 ve eski libadwaita için @define-color bloğu."""
+    return f"""@define-color window_bg_color {p['base']};
+@define-color window_fg_color {p['text']};
+@define-color view_bg_color {p['mantle']};
+@define-color view_fg_color {p['text']};
+@define-color headerbar_bg_color {p['mantle']};
+@define-color headerbar_fg_color {p['text']};
+@define-color sidebar_bg_color {p['mantle']};
+@define-color sidebar_fg_color {p['text']};
+@define-color secondary_sidebar_bg_color {p['mantle']};
+@define-color popover_bg_color {p['surface0']};
+@define-color popover_fg_color {p['text']};
+@define-color card_bg_color {p['surface0']};
+@define-color card_fg_color {p['text']};
+@define-color dialog_bg_color {p['base']};
+@define-color dialog_fg_color {p['text']};
+@define-color accent_color {p['accent']};
+@define-color accent_bg_color {p['accent']};
+@define-color accent_fg_color {p['crust']};
+@define-color destructive_color {p['danger']};
+@define-color destructive_bg_color {p['danger']};
+@define-color destructive_fg_color {p['crust']};
+@define-color success_color {p['ok']};
+@define-color warning_color {p['warn']};
+@define-color error_color {p['danger']};
+@define-color theme_bg_color {p['base']};
+@define-color theme_fg_color {p['text']};
+@define-color theme_base_color {p['mantle']};
+@define-color theme_text_color {p['text']};
+@define-color theme_selected_bg_color {p['accent']};
+@define-color theme_selected_fg_color {p['crust']};
+@define-color insensitive_bg_color {p['surface0']};
+@define-color insensitive_fg_color {p['surface1']};
+@define-color borders {p['surface1']};"""
+
+
+def direct_rules(p):
+    """Widget'ları doğrudan boyayan kurallar (hem GTK3 hem GTK4).
+
+    DİKKAT: libadwaita KULLANMAYAN GTK4 uygulamaları (pavucontrol gtkmm-4.0)
+    ne @define-color'a ne de libadwaita değişkenlerine bakıyor; Adwaita
+    renkleri sabit yazdığı için pencere Adwaita grisinde ve slider MAVİ
+    kalıyordu. Hangi seçicinin boyadığını deneyerek bulduk: zemin
+    viewport/stack, vurgu ise scale > trough > highlight.
+    """
+    return f"""window,
+.background,
+dialog,
+messagedialog,
+stack,
+viewport,
+scrolledwindow {{
+  background-color: {p['base']};
+  color: {p['text']};
+}}
+
+headerbar,
+.titlebar,
+notebook > header {{
+  background-color: {p['mantle']};
+  color: {p['text']};
+}}
+
+scale > trough > highlight,
+scale > trough > fill,
+progressbar > trough > progress,
+switch:checked,
+check:checked,
+radio:checked {{
+  background-color: {p['accent']};
+}}
+
+scale > trough > slider,
+scale slider {{
+  background-color: {p['accent']};
+  border-color: {p['accent']};
+}}
+
+check:checked,
+radio:checked,
+switch:checked {{
+  color: {p['crust']};
+}}"""
+
+
+def adw_variables(p):
+    """libadwaita 1.6+ CSS değişkenleri — asıl işi bunlar yapıyor."""
+    return f""":root {{
+  --window-bg-color: {p['base']};
+  --window-fg-color: {p['text']};
+  --view-bg-color: {p['mantle']};
+  --view-fg-color: {p['text']};
+  --headerbar-bg-color: {p['mantle']};
+  --headerbar-fg-color: {p['text']};
+  --headerbar-border-color: {p['surface1']};
+  --headerbar-backdrop-color: {p['base']};
+  --sidebar-bg-color: {p['mantle']};
+  --sidebar-fg-color: {p['text']};
+  --sidebar-backdrop-color: {p['base']};
+  --sidebar-border-color: {p['surface1']};
+  --secondary-sidebar-bg-color: {p['mantle']};
+  --secondary-sidebar-fg-color: {p['text']};
+  --card-bg-color: {p['surface0']};
+  --card-fg-color: {p['text']};
+  --dialog-bg-color: {p['base']};
+  --dialog-fg-color: {p['text']};
+  --popover-bg-color: {p['surface0']};
+  --popover-fg-color: {p['text']};
+  --thumbnail-bg-color: {p['surface0']};
+  --thumbnail-fg-color: {p['text']};
+  --overview-bg-color: {p['mantle']};
+  --overview-fg-color: {p['text']};
+  --accent-color: {p['accent']};
+  --accent-bg-color: {p['accent']};
+  --accent-fg-color: {p['crust']};
+  --destructive-color: {p['danger']};
+  --destructive-bg-color: {p['danger']};
+  --destructive-fg-color: {p['crust']};
+  --success-color: {p['ok']};
+  --success-bg-color: {p['ok']};
+  --success-fg-color: {p['crust']};
+  --warning-color: {p['warn']};
+  --warning-bg-color: {p['warn']};
+  --warning-fg-color: {p['crust']};
+  --error-color: {p['danger']};
+  --error-bg-color: {p['danger']};
+  --error-fg-color: {p['crust']};
+}}"""
+
+
+def block(palette, with_variables):
+    parts = [START, define_colors(palette)]
+    parts.append(direct_rules(palette))
+    if with_variables:
+        parts.append(adw_variables(palette))
+    parts.append(END)
+    return "\n".join(parts) + "\n"
+
+
+def strip_block(text):
+    pattern = re.compile(re.escape(START) + r".*?" + re.escape(END) + r"\n?", re.S)
+    return pattern.sub("", text)
+
+
+def write_css(path, palette, with_variables):
+    directory = os.path.dirname(path)
+    if not os.path.isdir(directory):
+        return
+
+    existing = ""
+    if os.path.isfile(path) and not os.path.islink(path):
+        with open(path, encoding="utf-8") as handle:
+            existing = strip_block(handle.read())
+        # Eski sürümlerin bıraktığı tema import'u: bırakırsak temanın sabit
+        # renkleri bizimkileri eziyor
+        existing = re.sub(r'@import\s+url\("file://[^"]*themes/[^"]*"\);\s*\n?',
+                          "", existing)
+    elif os.path.islink(path):
+        os.remove(path)
+
+    content = existing.strip()
+    content = (content + "\n\n" if content else "") + block(palette, with_variables)
+
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(content)
+
+
+def set_theme_name(name):
+    for path in (SETTINGS3, SETTINGS4):
+        if not os.path.isfile(path):
+            continue
+        with open(path, encoding="utf-8") as handle:
+            content = handle.read()
+        updated = re.sub(r"^gtk-theme-name=.*$", f"gtk-theme-name={name}",
+                         content, flags=re.M)
+        if updated != content:
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(updated)
+
+    for args in (["gtk-theme", name], ["color-scheme", "prefer-dark"]):
+        subprocess.run(["gsettings", "set", "org.gnome.desktop.interface"] + args,
+                       check=False, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL)
+
+
+def set_accent(name):
+    """libadwaita 1.6+ sistem vurgu rengi.
+
+    Bu ayar --accent-bg-color'ı eziyor; ayarlanmazsa mavi kalıyor.
+    Sadece isimli değerler kabul ediliyor (blue/teal/green/yellow/orange/
+    red/pink/purple/slate).
+    """
+    subprocess.run(["gsettings", "set", "org.gnome.desktop.interface",
+                    "accent-color", name],
+                   check=False, stdout=subprocess.DEVNULL,
+                   stderr=subprocess.DEVNULL)
+
+
+def warn_if_gtk_theme_env():
+    """GTK_THEME hâlâ tanımlıysa uyar.
+
+    Tanımlı olduğu sürece (boş olsa bile) GTK bizim CSS'imizi hiç okumuyor.
+    Hyprland'in Lua API'sinde ortam değişkeni silme yok, o yüzden tek çare
+    yeniden oturum açmak.
+    """
+    if os.environ.get("GTK_THEME") is not None:
+        print("gtk: DİKKAT — GTK_THEME hâlâ tanımlı, GTK uygulamaları "
+              "renkleri ancak yeniden oturum açtıktan sonra alacak")
+
+
+def main():
+    if len(sys.argv) < 2:
+        sys.exit("kullanım: qs-theme-gtk <tema>")
+
+    theme = sys.argv[1]
+    palette = load_palette(theme)
+    if palette is None:
+        print(f"gtk: '{theme}' için eşleme yok, atlandı")
+        return
+
+    palette = load_palette(theme)
+    set_theme_name(palette["theme_name"])
+    set_accent(palette["accent_name"])
+    write_css(GTK3, palette, with_variables=False)
+    write_css(GTK4, palette, with_variables=True)
+    warn_if_gtk_theme_env()
+
+    print(f"gtk: {theme} renkleri yazıldı "
+          f"(tema={palette['theme_name']}, uygulamalar yeniden açılınca)")
+
+
+if __name__ == "__main__":
+    main()

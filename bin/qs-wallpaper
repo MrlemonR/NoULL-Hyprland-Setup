@@ -1,0 +1,297 @@
+#!/usr/bin/env bash
+#
+# Duvar kağıdı listeleme ve uygulama.
+#
+# Duvar kağıtları temaya göre alt klasörlerde tutuluyor:
+#   ~/Pictures/Wallpapers/<tema>/...
+# İlgili tema klasörü boşsa ana klasördeki resimlere düşer.
+#
+#   qs-wallpaper list [tema]        -> hareketsiz duvar kağıtları
+#   qs-wallpaper list-animated [t]  -> <tema>/Animated/ içindeki videolar
+#                                      (önizleme karelerini de üretir)
+#   qs-wallpaper set <yol>          -> duvar kağıdını uygular ve kalıcı yapar
+#   qs-wallpaper show <yol>         -> quickshell animasyonuyla değiştirir
+#   qs-wallpaper current            -> ekranda duran duvar kağıdının yolu
+#   qs-wallpaper for-theme [tema]   -> o temanın son kullandığı duvar kağıdı
+#   qs-wallpaper apply-theme [tema] -> o temanın son duvar kağıdına geç
+#                                      (qs-theme çağırıyor, animasyonlu)
+#   qs-wallpaper restore            -> açılışta son durumu geri getirir
+#                                      (Hyprland autostart çağırıyor)
+#
+# HER TEMANIN KENDİ SON DUVAR KAĞIDI var: bir temadayken seçtiğin resim o
+# temaya yazılıyor, temaya geri döndüğünde o resim geliyor. Kayıtlar
+# ~/.config/quickshell/wallpapers.conf içinde "tema = /tam/yol" satırları.
+
+set -u
+
+ROOT="$HOME/Pictures/Wallpapers"
+HYPRPAPER_CONF="$HOME/.config/hypr/hyprpaper.conf"
+QS_STATE="$HOME/.config/quickshell/theme.txt"
+PER_THEME="$HOME/.config/quickshell/wallpapers.conf"
+# Tema başına kayda geçmeden önceki tek satırlık dosya (geriye dönük)
+LEGACY_STATE="$HOME/.config/quickshell/wallpaper.txt"
+
+current_theme() {
+    if [[ -r "$QS_STATE" ]]; then
+        tr -d '[:space:]' < "$QS_STATE"
+    else
+        printf 'catppuccin-mocha'
+    fi
+}
+
+# Video/gif mi?
+is_animated() {
+    case "${1,,}" in
+        *.mp4|*.webm|*.mkv|*.avi|*.mov|*.gif) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+THUMB_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/qs-wallpaper-thumbs"
+
+# Videonun ilk karesi. Ad = yolun md5'i (QML tarafı Qt.md5 ile aynısını
+# hesaplayıp dosyayı doğrudan gösteriyor, ayrıca IPC gerekmiyor).
+make_thumb() {
+    local src="$1"
+    local hash out
+    hash=$(printf '%s' "$src" | md5sum | cut -d" " -f1)
+    out="$THUMB_DIR/$hash.png"
+    mkdir -p "$THUMB_DIR"
+    if [[ ! -s "$out" || "$src" -nt "$out" ]]; then
+        ffmpeg -loglevel quiet -y -ss 1 -i "$src" -frames:v 1 \
+            -vf "scale=480:-1" "$out" </dev/null >/dev/null 2>&1 \
+            || ffmpeg -loglevel quiet -y -i "$src" -frames:v 1 \
+               -vf "scale=480:-1" "$out" </dev/null >/dev/null 2>&1 || true
+    fi
+    [[ -s "$out" ]] && printf '%s' "$out"
+}
+
+list_images() {
+    local dir="$1"
+    [[ -d "$dir" ]] || return 0
+    # -L: tema klasörüne sembolik bağ konabiliyor, hedefi görsün
+    find -L "$dir" -maxdepth 1 -type f \
+        \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' \
+           -o -iname '*.webp' -o -iname '*.bmp' \) 2>/dev/null | sort
+}
+
+# Tema kimliğine karşılık gelen klasörü esnek biçimde bulur.
+# "catppuccin-mocha" ile "CatpuccinMocha" gibi yazımları eşleştirmek için
+# küçük harfe indirip harf dışını atıyor ve tekrar eden harfleri teke
+# düşürüyoruz (catppuccin -> catpucin, catpuccin -> catpucin).
+theme_dir() {
+    local theme="$1"
+    python3 - "$ROOT" "$theme" <<'PYEOF'
+import os, re, sys
+
+root, theme = sys.argv[1], sys.argv[2]
+
+def norm(value):
+    value = re.sub(r"[^a-z0-9]", "", value.lower())
+    return re.sub(r"(.)\1+", r"\1", value)
+
+target = norm(theme)
+if os.path.isdir(root):
+    for name in sorted(os.listdir(root)):
+        full = os.path.join(root, name)
+        if os.path.isdir(full) and norm(name) == target:
+            print(full)
+            break
+PYEOF
+}
+
+# Seçimi etkin temanın altına yaz
+remember_for_theme() {
+    local theme="$1" path="$2"
+    mkdir -p "$(dirname "$PER_THEME")"
+    touch "$PER_THEME"
+
+    if grep -qE "^[[:space:]]*$theme[[:space:]]*=" "$PER_THEME"; then
+        sed -i "s|^[[:space:]]*$theme[[:space:]]*=.*|$theme = $path|" "$PER_THEME"
+    else
+        printf '%s = %s\n' "$theme" "$path" >> "$PER_THEME"
+    fi
+}
+
+# Bir temanın son duvar kağıdı. Kayıt yoksa sırayla: eski tek satırlık
+# dosya, o temanın klasöründeki ilk resim.
+read_for_theme() {
+    local theme="$1" img=""
+
+    if [[ -r "$PER_THEME" ]]; then
+        img=$(sed -n "s|^[[:space:]]*$theme[[:space:]]*=[[:space:]]*||p" "$PER_THEME" \
+            | head -1 | sed "s|^~|$HOME|")
+    fi
+
+    # Kaydı yoksa temanın kendi klasöründeki ilk resim
+    if [[ -z "$img" || ! -f "$img" ]]; then
+        img=$("$0" list "$theme" | head -1)
+    fi
+
+    # O da yoksa tema başına kayda geçmeden önceki tek satırlık dosya
+    if [[ -z "$img" || ! -f "$img" ]] && [[ -r "$LEGACY_STATE" ]]; then
+        img=$(sed "s|^~|$HOME|" "$LEGACY_STATE" | head -1)
+    fi
+
+    [[ -n "$img" && -f "$img" ]] && printf '%s' "$img"
+}
+
+# Ekranda gerçekten duran duvar kağıdı
+read_current() {
+    local img=""
+    if [[ -r "$HYPRPAPER_CONF" ]]; then
+        img=$(grep -m1 -oP '^\s*path\s*=\s*\K.*' "$HYPRPAPER_CONF" | sed "s|^~|$HOME|")
+    fi
+    [[ -z "$img" || ! -f "$img" ]] && img=$(read_for_theme "$(current_theme)")
+    [[ -n "$img" && -f "$img" ]] && printf '%s' "$img"
+}
+
+case "${1:-list}" in
+show)
+    IMG="${2:-}"
+    [[ -z "$IMG" || ! -f "$IMG" ]] && { echo "qs-wallpaper: file not found" >&2; exit 1; }
+
+    # DİKKAT: geçiş animasyonu resmi QML Image ile yüklüyor; video yüklenemediği
+    # için status hiç Ready olmuyor, animasyon başlamıyor ve "set" hiç
+    # çağrılmıyordu (video seçilince hiçbir şey olmamasının sebebi buydu).
+    if is_animated "$IMG"; then
+        exec "$0" set "$IMG"
+    fi
+
+    # Yolu quickshell'e dosya üzerinden bildir (ipc call argüman almıyor),
+    # animasyon bitince quickshell bizi "set" ile geri çağırıyor
+    printf '%s' "$IMG" > "${XDG_CACHE_HOME:-$HOME/.cache}/qs-wallpaper-pending"
+    if qs -c topbar ipc call wallpaperFx play >/dev/null 2>&1; then
+        exit 0
+    fi
+    # quickshell yoksa animasyonsuz uygula
+    exec "$0" set "$IMG"
+    ;;
+
+list-animated)
+    theme="${2:-$(current_theme)}"
+    dir=$(theme_dir "$theme")
+    [[ -z "$dir" ]] && exit 0
+    while IFS= read -r f; do
+        [[ -z "$f" ]] && continue
+        make_thumb "$f" >/dev/null
+        printf '%s\n' "$f"
+    done < <(find -L "$dir/Animated" -maxdepth 1 -type f \
+        \( -iname '*.mp4' -o -iname '*.webm' -o -iname '*.mkv' \
+           -o -iname '*.mov' -o -iname '*.avi' -o -iname '*.gif' \) 2>/dev/null | sort)
+    ;;
+
+for-theme)
+    read_for_theme "${2:-$(current_theme)}"
+    ;;
+
+apply-theme)
+    # qs-theme tema değiştirdikten sonra çağırıyor: o temanın son duvar
+    # kağıdına geç. Zaten ekrandaki resimse boşuna animasyon oynatma.
+    theme="${2:-$(current_theme)}"
+    img=$(read_for_theme "$theme")
+    [[ -z "$img" || ! -f "$img" ]] && { echo "wallpaper: '$theme' için resim yok"; exit 0; }
+
+    if [[ "$img" == "$(read_current)" ]]; then
+        echo "wallpaper: $theme zaten bu resimde"
+        exit 0
+    fi
+
+    exec "$0" show "$img"
+    ;;
+
+restore)
+    # Hyprland açılışında çağrılıyor. hyprpaper kendi config'inden yüklemeyi
+    # beceremediği durumlarda da doğru duvar kağıdı gelsin diye hyprpaper
+    # hazır olur olmaz etkin temanın son resmini tekrar uyguluyoruz.
+    img=$(read_for_theme "$(current_theme)")
+    [[ -z "$img" || ! -f "$img" ]] && exit 0
+
+    for _ in $(seq 1 60); do
+        if pgrep -x hyprpaper >/dev/null 2>&1 \
+            && hyprctl hyprpaper listactive >/dev/null 2>&1; then
+            break
+        fi
+        sleep 0.25
+    done
+
+    exec "$0" set "$img"
+    ;;
+
+list)
+    theme="${2:-$(current_theme)}"
+    dir=$(theme_dir "$theme")
+    out=""
+    [[ -n "$dir" ]] && out=$(list_images "$dir")
+    # Tema klasörü yok ya da boşsa ana klasöre düş
+    [[ -z "$out" ]] && out=$(list_images "$ROOT")
+    printf '%s\n' "$out" | sed '/^$/d'
+    ;;
+
+current)
+    read_current
+    ;;
+
+set)
+    IMG="${2:-}"
+    [[ -z "$IMG" || ! -f "$IMG" ]] && { echo "qs-wallpaper: file not found" >&2; exit 1; }
+
+    if is_animated "$IMG"; then
+        if ! command -v mpvpaper >/dev/null 2>&1; then
+            echo "qs-wallpaper: animasyonlu duvar kağıdı için mpvpaper gerekiyor" >&2
+            echo "   yay -S mpvpaper" >&2
+            exit 1
+        fi
+        pkill -x mpvpaper 2>/dev/null || true
+        # hyprpaper altta kalsın diye kapatmıyoruz, mpvpaper üstüne çiziyor
+        setsid mpvpaper -o "no-audio loop-file=inf hwdec=auto input-ipc-server=${XDG_RUNTIME_DIR:-/run/user/1000}/qs-mpvpaper.sock" '*' "$IMG" \
+            >/dev/null 2>&1 &
+        sleep 0.4
+        remember_for_theme "$(current_theme)" "$IMG"
+        echo "wallpaper (animasyonlu): $IMG"
+        exit 0
+    fi
+
+    # Hareketsiz duvar kağıdına dönerken oynayan videoyu durdur
+    pkill -x mpvpaper 2>/dev/null || true
+
+    MONITOR=$(hyprctl monitors -j 2>/dev/null | python3 -c '
+import json, sys
+try:
+    mons = json.load(sys.stdin)
+    print(mons[0]["name"] if mons else "")
+except Exception:
+    print("")
+')
+
+    # Çalışan hyprpaper örneğine uygula.
+    # DİKKAT: monitör+yol argümanı TEK bir tırnak içinde verilince
+    # ("$MONITOR,$IMG") bu sistemdeki hyprctl "invalid hyprpaper request"
+    # diyor. Virgülü tırnak dışında bırakmak gerekiyor.
+    if pgrep -x hyprpaper >/dev/null 2>&1; then
+        hyprctl hyprpaper unload all >/dev/null 2>&1 || true
+        hyprctl hyprpaper preload "$IMG" >/dev/null 2>&1 || true
+        hyprctl hyprpaper wallpaper "$MONITOR",cover:"$IMG" >/dev/null 2>&1 \
+            || hyprctl hyprpaper wallpaper "$MONITOR","$IMG" >/dev/null 2>&1 \
+            || true
+    fi
+
+    # Seçimi etkin temanın kaydına yaz (tema değişince / açılışta okunuyor)
+    remember_for_theme "$(current_theme)" "$IMG"
+
+    # Yeniden açılışta kalması için config'i yaz
+    mkdir -p "$(dirname "$HYPRPAPER_CONF")"
+    cat > "$HYPRPAPER_CONF" <<EOF
+# qs-wallpaper tarafından üretildi
+wallpaper {
+  monitor = $MONITOR
+  path = $IMG
+  fit_mode = cover
+}
+splash = false
+EOF
+    echo "wallpaper: $IMG"
+    ;;
+esac
+
+exit 0

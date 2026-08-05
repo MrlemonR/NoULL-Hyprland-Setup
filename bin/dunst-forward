@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+
+APP="$1"
+TITLE="$2"
+BODY="$3"
+
+# Kendi oluşturduğumuz bildirimlerin döngüye girmesini engelleme
+if [[ "$APP" == "DunstProxy" ]]; then
+    exit 0
+fi
+
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/dunst-proxy-icons"
+
+# ============================================================
+# 1. ANAHTAR ÜRETİMİ
+#
+# DİKKAT: normalize/hash mantığı dunst-icon-cache içindekiyle
+# birebir aynı olmak zorunda, yoksa iki taraf birbirini bulamaz.
+# ============================================================
+
+normalize() {
+    printf '%s' "$1" \
+        | sed -e 's/<[^>]*>//g' \
+              -e 's/&lt;/</g' \
+              -e 's/&gt;/>/g' \
+              -e 's/&quot;/"/g' \
+              -e "s/&apos;/'/g" \
+              -e "s/&#39;/'/g" \
+              -e 's/&amp;/\&/g' \
+        | tr '\t\n\r' '   ' \
+        | tr -s ' ' \
+        | sed -e 's/^ //' -e 's/ $//'
+}
+
+sha1() {
+    local out
+    out=$(printf '%s' "$1" | sha1sum)
+    printf '%s' "${out%% *}"
+}
+
+SEP=$'\x1f'
+N_APP=$(normalize "$APP")
+N_TITLE=$(normalize "$TITLE")
+N_BODY=$(normalize "$BODY")
+
+KEY_FULL=$(sha1 "${N_APP}${SEP}${N_TITLE}${SEP}${N_BODY}")
+KEY_APP=$(sha1 "${N_APP}${SEP}${N_TITLE}")
+
+# ============================================================
+# 2. GERÇEK İKONU ÖNBELLEKTEN AL
+#
+# dunst-icon-cache, uygulamanın ham olarak yolladığı ikonu
+# (Discord avatarı / sunucu resmi gibi) PNG'ye çevirip buraya
+# yazar. Dunst bu veriyi script'e aktaramadığı için tek yol bu.
+# ============================================================
+
+ICON=""
+
+# Servis çalışmıyorsa boşuna bekleme, doğrudan yedek seçeneklere geç
+MONITOR_ALIVE=0
+if [[ -r "$CACHE_DIR/.running" ]]; then
+    read -r MONITOR_PID < "$CACHE_DIR/.running"
+    if [[ -n "$MONITOR_PID" ]] && kill -0 "$MONITOR_PID" 2>/dev/null; then
+        MONITOR_ALIVE=1
+    fi
+fi
+
+if (( MONITOR_ALIVE )); then
+    INFO=""
+
+    # Aynı bildirimi ikimiz de D-Bus'tan alıyoruz; servis genelde
+    # bizden önce yazmış oluyor, yine de kısa bir tolerans tanıyoruz.
+    for (( i = 0; i < 25; i++ )); do
+        if [[ -f "$CACHE_DIR/$KEY_FULL.info" ]]; then
+            INFO="$CACHE_DIR/$KEY_FULL.info"
+            break
+        fi
+        sleep 0.01
+    done
+
+    # Gövde eşleşmediyse (dunst metni değiştirmiş olabilir)
+    # uygulama + başlık eşleşmesine düş
+    if [[ -z "$INFO" && -f "$CACHE_DIR/$KEY_APP.info" ]]; then
+        INFO="$CACHE_DIR/$KEY_APP.info"
+    fi
+
+    if [[ -n "$INFO" ]]; then
+        read -r ICON < "$INFO" || true
+    fi
+fi
+
+# Önbellekteki dosya bu arada temizlenmiş olabilir
+if [[ "$ICON" == /* && ! -f "$ICON" ]]; then
+    ICON=""
+fi
+
+# ============================================================
+# 3. YEDEK SEÇENEKLER
+# ============================================================
+
+# 3a. Dunst'ın çözebildiği bir ikon yolu varsa onu kullan
+if [[ -z "$ICON" || "$ICON" == "unknown" ]]; then
+    ICON="${DUNST_ICON_PATH:-$4}"
+fi
+
+# Dunst geçici bir dosya verdiyse, silinmeden önce kopyasını al
+if [[ "$ICON" == /tmp/* && -f "$ICON" ]]; then
+    mkdir -p "$CACHE_DIR"
+    SAFE_ICON="$CACHE_DIR/tmp-icon-$$.png"
+    if cp "$ICON" "$SAFE_ICON" 2>/dev/null; then
+        ICON="$SAFE_ICON"
+    fi
+fi
+
+# 3b. .desktop girdisinden uygulama ikonu
+if [[ -z "$ICON" || "$ICON" == "unknown" ]]; then
+    ICON="${DUNST_DESKTOP_ENTRY,,}"
+fi
+
+# 3c. Uygulamanın adından uygulama ikonu
+if [[ -z "$ICON" || "$ICON" == "unknown" ]]; then
+    ICON="${APP,,}"
+fi
+
+# 3d. Hiçbir şey bulunamazsa varsayılan ikon
+if [[ -z "$ICON" ]]; then
+    ICON="dialog-information"
+fi
+
+exec ~/.local/bin/dunst-notify \
+    "$TITLE" \
+    "$BODY" \
+    "$ICON"

@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+#
+# Takvim notu hatırlatması.
+#
+# Bildirim doğrudan CalendarService'ten değil buradan gidiyor: not defteri
+# ikonlu, tıklanana kadar ekranda kalan ve "Önizle" eylemi taşıyan bir bildirim
+# gönderiyoruz. Kullanıcı tıklayınca quickshell'deki not önizleme penceresini
+# açıyoruz.
+#
+# Kullanım: qs-note-reminder <not-id> <zaman-metni> <not-metni> <resim-sayısı>
+
+set -u
+
+NOTE_ID="${1:-}"
+WHEN="${2:-}"
+TEXT="${3:-}"
+IMAGE_COUNT="${4:-0}"
+
+ICON="accessories-notes"
+SHELL_CONFIG="topbar"
+
+# Uzun notu bildirimde kısaltıyoruz; tamamı önizleme penceresinde görünecek
+SHORT="$TEXT"
+if (( ${#SHORT} > 120 )); then
+    SHORT="${SHORT:0:120}…"
+fi
+
+BODY="$SHORT"
+
+if (( IMAGE_COUNT > 0 )); then
+    if (( IMAGE_COUNT == 1 )); then
+        BODY+=$'\n'"󰥶 1 image"
+    else
+        BODY+=$'\n'"󰥶 $IMAGE_COUNT images"
+    fi
+fi
+
+# dunst eylemleri buton olarak çizemiyor, o yüzden gövdeye buton görünümlü bir
+# satır koyup bildirime tıklamayı eyleme bağlıyoruz (mouse_left_click = do_action)
+BODY+=$'\n\n'"[ 󰈈  Preview ]"
+
+# -A verildiğinde notify-send bildirim kapanana kadar bekler ve seçilen eylemin
+# adını stdout'a yazar
+ACTION=$(notify-send \
+    --app-name "DunstProxy" \
+    --category "qs.reminder" \
+    --icon "$ICON" \
+    --expire-time 0 \
+    --action "default=Preview" \
+    "󰎞 $WHEN" \
+    "$BODY")
+
+if [[ "$ACTION" == "default" && -n "$NOTE_ID" ]]; then
+    # quickshell 0.3.0'ın "ipc call" komutu argüman almıyor, hangi notun
+    # açılacağını dosya üzerinden bildiriyoruz
+    printf '%s' "$NOTE_ID" > "${XDG_CACHE_HOME:-$HOME/.cache}/qs-note-preview"
+    qs -c "$SHELL_CONFIG" ipc call notePreview preview
+fi
