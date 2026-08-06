@@ -271,6 +271,76 @@ PanelWindow {
                     }
                 }
             }
+
+            // Wipe the history, on the same line as the tabs. Two presses:
+            // the first turns it into a confirmation, so a stray click on a
+            // row that sits right next to Images cannot erase everything.
+            Rectangle {
+                id: clearButton
+
+                property bool confirming: false
+
+                anchors.right: parent.right
+                anchors.rightMargin: 14
+                anchors.verticalCenter: parent.verticalCenter
+                width: clearLabel.implicitWidth + 20
+                height: 24
+                radius: 0
+                color: {
+                    if (clearButton.confirming)
+                        return clearArea.containsMouse ? Theme.red : Theme.dangerBg
+                    return clearArea.containsMouse ? Theme.surface0 : "transparent"
+                }
+                // Tied to the whole history, not the filtered view: on the
+                // Images tab with no images the history is still there to
+                // delete, and hiding the button then would say otherwise.
+                visible: ClipboardService.entries.length > 0 || clearButton.confirming
+
+                Behavior on color {
+                    ColorAnimation { duration: 120 }
+                }
+
+                Text {
+                    id: clearLabel
+
+                    anchors.centerIn: parent
+                    text: clearButton.confirming ? "Sure?" : "Delete all"
+                    color: {
+                        if (clearButton.confirming)
+                            return clearArea.containsMouse ? Theme.base : Theme.red
+                        return clearArea.containsMouse ? Theme.red : Theme.subtext0
+                    }
+                    font.pixelSize: 12
+                    font.bold: clearButton.confirming
+                }
+
+                // Give up on the confirmation rather than leaving it armed
+                Timer {
+                    id: confirmTimer
+
+                    interval: 3000
+                    repeat: false
+                    onTriggered: clearButton.confirming = false
+                }
+
+                MouseArea {
+                    id: clearArea
+
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                        if (clearButton.confirming) {
+                            clearButton.confirming = false
+                            confirmTimer.stop()
+                            ClipboardService.clearAll()
+                        } else {
+                            clearButton.confirming = true
+                            confirmTimer.restart()
+                        }
+                    }
+                }
+            }
         }
 
         // ---------------- Girdiler ----------------

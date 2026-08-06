@@ -106,6 +106,17 @@ Singleton {
         refreshTimer.restart()
     }
 
+    // Wipe the whole history. Pins go with it: they are ids into the very
+    // list being emptied, so keeping them would leave entries pointing at
+    // nothing.
+    function clearAll() {
+        root.entries = []
+        root.pins = []
+        pinFile.setText(JSON.stringify({ pins: [] }, null, 2))
+        Quickshell.execDetached([root.script, "wipe"])
+        refreshTimer.restart()
+    }
+
     function togglePin(id) {
         if (root.pins.indexOf(id) >= 0)
             root.pins = root.pins.filter(v => v !== id)
