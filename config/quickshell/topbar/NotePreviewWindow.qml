@@ -155,7 +155,8 @@ PanelWindow {
                 anchors.leftMargin: 16
                 anchors.verticalCenter: parent.verticalCenter
                 text: "󰎞"
-                font.family: "JetBrainsMono Nerd Font"
+                font.family: Theme.fontMono
+                font.weight: Theme.fontWeight
                 font.pixelSize: 18
                 color: Theme.blue
             }
@@ -185,7 +186,8 @@ PanelWindow {
                     text: root.note ? CalendarService.noteClock(root.note) : ""
                     color: Theme.mauve
                     font.pixelSize: 11
-                    font.family: "JetBrainsMono Nerd Font"
+                    font.family: Theme.fontMono
+                    font.weight: Theme.fontWeight
                 }
             }
 
@@ -215,7 +217,8 @@ PanelWindow {
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         text: "󰩹"
-                        font.family: "JetBrainsMono Nerd Font"
+                        font.family: Theme.fontMono
+                        font.weight: Theme.fontWeight
                         font.pixelSize: 13
                         color: deleteArea.containsMouse ? Theme.base : Theme.subtext0
                     }

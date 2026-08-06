@@ -20,7 +20,8 @@ RowLayout {
             anchors.centerIn: parent
             color: Theme.text
             font.pixelSize: 13
-            font.family: "JetBrainsMono Nerd Font"
+            font.family: Theme.fontMono
+            font.weight: Theme.fontWeight
         }
 
         MouseArea {
@@ -48,7 +49,8 @@ RowLayout {
         color: Theme.text
         font.pixelSize: 13
         font.bold: true
-        font.family: "JetBrainsMono Nerd Font"
+        font.family: Theme.fontMono
+        font.weight: Theme.fontWeight
     }
 
     Timer {
@@ -73,7 +75,8 @@ RowLayout {
         id: focusedAppText
         color: Theme.text
         font.pixelSize: 13
-        font.family: "JetBrainsMono Nerd Font"
+        font.family: Theme.fontMono
+        font.weight: Theme.fontWeight
         text: ""
 
         // Odakta uygulama yoksa metni de boşluğunu da tamamen kaldır

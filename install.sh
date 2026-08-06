@@ -44,7 +44,13 @@ TOOLS=(grim slurp wl-clipboard cliphist imagemagick ffmpeg python zenity
 
 # Look and feel. breeze-cursors is required: the Hyprland env sets
 # XCURSOR_THEME=breeze_cursors, without it you get the default X cursor.
-LOOKS=(papirus-icon-theme breeze-cursors ttf-jetbrains-mono-nerd
+#
+# Both Nerd Fonts ship on purpose: config/quickshell/font.conf picks one, and
+# qs-font refuses a family fontconfig cannot see. otf-monaspace-nerd is the
+# current choice (Monaspace Argon); ttf-jetbrains-mono-nerd stays as the
+# fallback the code defaults to when font.conf is missing or unreadable.
+LOOKS=(papirus-icon-theme breeze-cursors
+       ttf-jetbrains-mono-nerd otf-monaspace-nerd
        noto-fonts noto-fonts-emoji kvantum qt6ct gnome-themes-extra
        adwaita-icon-theme)
 
@@ -218,7 +224,28 @@ else
 fi
 
 # ============================================================
-# 7. Summary
+# 7. Apply the font everywhere
+# ============================================================
+
+# config/quickshell/font.conf ships the choice; qs-font pushes it into GTK,
+# Qt, kitty, dunst, hyprlock and gsettings, none of which read that file
+# themselves.
+say "Applying fonts"
+FONT_MONO="$(sed -n 's/^[[:space:]]*mono[[:space:]]*=[[:space:]]*//p' \
+    "$HOME/.config/quickshell/font.conf" 2>/dev/null | head -1)"
+FONT_UI="$(sed -n 's/^[[:space:]]*ui[[:space:]]*=[[:space:]]*//p' \
+    "$HOME/.config/quickshell/font.conf" 2>/dev/null | head -1)"
+FONT_MONO="${FONT_MONO:-JetBrainsMono Nerd Font}"
+FONT_UI="${FONT_UI:-$FONT_MONO}"
+
+if "$HOME/.local/bin/qs-font" "$FONT_MONO" "$FONT_UI" >/dev/null; then
+    ok "fonts set to $FONT_MONO"
+else
+    warn "qs-font failed — is the font package installed?"
+fi
+
+# ============================================================
+# 8. Summary
 # ============================================================
 
 say "Installation complete"

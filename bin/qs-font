@@ -1,0 +1,195 @@
+#!/usr/bin/env bash
+#
+# Applies one font choice everywhere, the way qs-theme does for colours.
+#
+#   qs-font                 print the current fonts
+#   qs-font list            list installed families
+#   qs-font <mono> [ui]     set them (ui defaults to mono)
+#
+# Source of truth: ~/.config/quickshell/font.conf. Quickshell reads that file
+# directly and live, so the bar needs no restart; everything else is rewritten
+# in place here.
+#
+# NOTE: mono must be a Nerd Font. The bar draws its icons from Nerd Font
+# glyphs, so a plain font leaves empty boxes across the whole bar.
+
+set -uo pipefail
+
+CONF="$HOME/.config/quickshell/font.conf"
+
+say()  { printf '\n\033[1;35m==>\033[0m \033[1m%s\033[0m\n' "$*"; }
+ok()   { printf '  \033[1;32m✓\033[0m %s\n' "$*"; }
+skip() { printf '  \033[1;33m·\033[0m %s\n' "$*"; }
+
+read_conf() {
+    MONO="JetBrainsMono Nerd Font"; UI="$MONO"; SIZE=10; WEIGHT="Regular"
+    [[ -r "$CONF" ]] || return 0
+    while IFS= read -r line; do
+        line="${line%%#*}"
+        [[ "$line" =~ ^[[:space:]]*$ ]] && continue
+        local k="${line%%=*}" v="${line#*=}"
+        k="$(echo "$k" | xargs)"; v="$(echo "$v" | xargs)"
+        case "$k" in
+            mono)   MONO="$v" ;;
+            ui)     UI="$v" ;;
+            size)   SIZE="$v" ;;
+            weight) WEIGHT="$v" ;;
+        esac
+    done < "$CONF"
+}
+
+case "${1:-}" in
+    list)
+        fc-list : family | tr ',' '\n' | sort -u | grep -v '^$'
+        exit 0
+        ;;
+    "")
+        read_conf
+        echo "mono   = $MONO"
+        echo "ui     = $UI"
+        echo "size   = $SIZE"
+        echo "weight = $WEIGHT"
+        exit 0
+        ;;
+esac
+
+# Read the config first (for size), THEN take the names from the arguments —
+# read_conf assigns MONO/UI too, so doing it the other way round silently
+# overwrote what was just asked for.
+read_conf
+MONO="$1"
+UI="${2:-$1}"
+SIZE="${SIZE:-10}"
+
+# NOTE: `fc-list | grep -q` under `set -o pipefail` always reports failure —
+# grep -q exits on the first match, fc-list dies of SIGPIPE, and pipefail
+# takes that as the pipeline's status. Materialise the list first.
+FAMILIES="$(fc-list : family | tr ',' '\n' | sort -u)"
+if ! grep -qxF "$MONO" <<< "$FAMILIES"; then
+    printf '\033[1;31m✗\033[0m Font not installed: %s\n' "$MONO"
+    echo "  See what is available with: qs-font list"
+    exit 1
+fi
+if ! grep -qxF "$UI" <<< "$FAMILIES"; then
+    printf '\033[1;31m✗\033[0m Font not installed: %s\n' "$UI"
+    exit 1
+fi
+
+# Every target spells weight differently:
+#   Pango (GTK, gsettings, dunst, hyprlock) wants the style word in the string
+#   Qt/qt6ct wants the numeric OS/2 weight
+#   kitty wants style="..." as a separate key
+#   QML wants the number too (Font.Medium == 500)
+case "${WEIGHT,,}" in
+    thin)       QT_WEIGHT=100 ;;
+    extralight) QT_WEIGHT=200 ;;
+    light)      QT_WEIGHT=300 ;;
+    regular|"") QT_WEIGHT=400; WEIGHT="Regular" ;;
+    medium)     QT_WEIGHT=500 ;;
+    semibold)   QT_WEIGHT=600 ;;
+    bold)       QT_WEIGHT=700 ;;
+    extrabold)  QT_WEIGHT=800 ;;
+    black)      QT_WEIGHT=900 ;;
+    *)          printf '\033[1;31m✗\033[0m Unknown weight: %s\n' "$WEIGHT"; exit 1 ;;
+esac
+
+# Pango omits the style word for Regular — "Family Regular 11" is not a
+# description Pango resolves, it looks for a face literally called Regular.
+if [[ "$WEIGHT" == "Regular" ]]; then
+    PANGO_MONO="$MONO"; PANGO_UI="$UI"
+else
+    PANGO_MONO="$MONO $WEIGHT"; PANGO_UI="$UI $WEIGHT"
+fi
+
+say "Setting fonts"
+echo "  mono   = $MONO"
+echo "  ui     = $UI"
+echo "  weight = $WEIGHT ($QT_WEIGHT)"
+
+# ---------------------------------------------------------------- config file
+mkdir -p "$(dirname "$CONF")"
+cat > "$CONF" <<EOF
+# Single source of truth for fonts, the way palettes.json is for colours.
+# Written by qs-font. Quickshell reads this live; everything else is rewritten
+# in place by the same script.
+#
+# mono  terminal, bar, notifications, code. MUST be a Nerd Font — the bar
+#       draws its icons from Nerd Font glyphs and they vanish without one.
+# ui    GTK/Qt application interfaces.
+# size  base point size (kitty adds 2).
+
+mono   = $MONO
+ui     = $UI
+size   = $SIZE
+weight = $WEIGHT
+EOF
+ok "$CONF"
+
+# ---------------------------------------------------------------------- GTK
+for v in 3.0 4.0; do
+    f="$HOME/.config/gtk-$v/settings.ini"
+    [[ -w "$f" || ! -e "$f" ]] || { skip "gtk-$v not writable"; continue; }
+    mkdir -p "$(dirname "$f")"
+    if [[ -e "$f" ]] && grep -q '^gtk-font-name=' "$f"; then
+        sed -i "s|^gtk-font-name=.*|gtk-font-name=$PANGO_UI $SIZE|" "$f"
+    else
+        [[ -e "$f" ]] || printf '[Settings]\n' > "$f"
+        printf 'gtk-font-name=%s %s\n' "$PANGO_UI" "$SIZE" >> "$f"
+    fi
+    ok "gtk-$v"
+done
+
+# libadwaita apps read gsettings rather than settings.ini
+if command -v gsettings >/dev/null; then
+    gsettings set org.gnome.desktop.interface font-name "$PANGO_UI $SIZE"            2>/dev/null
+    gsettings set org.gnome.desktop.interface document-font-name "$PANGO_UI $SIZE"   2>/dev/null
+    gsettings set org.gnome.desktop.interface monospace-font-name "$PANGO_MONO $SIZE" 2>/dev/null
+    ok "gsettings"
+fi
+
+# ----------------------------------------------------------------------- Qt
+QT6="$HOME/.config/qt6ct/qt6ct.conf"
+if [[ -w "$QT6" ]]; then
+    # QFont string: "family,size,-1,5,weight,italic,...", the trailing fields
+    # are style flags qt6ct writes verbatim.
+    sed -i \
+        -e "s|^general=.*|general=\"$UI,$SIZE,-1,5,$QT_WEIGHT,0,0,0,0,0,0,0,0,0,0,1,,0,0\"|" \
+        -e "s|^fixed=.*|fixed=\"$MONO,$SIZE,-1,5,$QT_WEIGHT,0,0,0,0,0,0,0,0,0,0,1,,0,0\"|" \
+        "$QT6"
+    ok "qt6ct"
+else
+    skip "qt6ct.conf not writable"
+fi
+
+# -------------------------------------------------------------------- kitty
+KITTY="$HOME/.config/kitty/KittyLemon.conf"
+if [[ -w "$KITTY" ]]; then
+    sed -i \
+        -e "s|^font_family .*|font_family      family=\"$MONO\" style=\"$WEIGHT\"|" \
+        -e "s|^font_size .*|font_size        $((SIZE + 2))|" \
+        "$KITTY"
+    ok "kitty"
+else
+    skip "kitty config not writable"
+fi
+
+# -------------------------------------------------------------------- dunst
+DUNST="$HOME/.config/dunst/dunstrc"
+if [[ -w "$DUNST" ]]; then
+    sed -i "s|^\([[:space:]]*\)font = .*|\1font = \"$PANGO_MONO $SIZE\"|" "$DUNST"
+    command -v dunstctl >/dev/null && dunstctl reload 2>/dev/null
+    ok "dunst"
+else
+    skip "dunstrc not writable"
+fi
+
+# ----------------------------------------------------------------- hyprlock
+# Generated by qs-theme-hyprlock, which picks the font itself — regenerate so
+# the lock screen follows instead of drifting.
+if [[ -x "$HOME/.local/bin/qs-theme-hyprlock" ]]; then
+    "$HOME/.local/bin/qs-theme-hyprlock" "$(cat "$HOME/.config/quickshell/theme.txt" 2>/dev/null || echo catppuccin-mocha)" >/dev/null 2>&1 \
+        && ok "hyprlock" || skip "hyprlock regeneration failed"
+fi
+
+say "Done"
+echo "  The bar picks this up live. GTK/Qt apps need restarting."

@@ -21,6 +21,24 @@ Singleton {
 
     readonly property string statePath: Quickshell.env("HOME") + "/.config/quickshell/theme.txt"
     readonly property string palettesPath: Quickshell.env("HOME") + "/.config/quickshell/palettes.json"
+    readonly property string fontPath: Quickshell.env("HOME") + "/.config/quickshell/font.conf"
+
+    // ---------------- Fonts ----------------
+    // Set by qs-font, watched live like the palette. fontMono must be a Nerd
+    // Font: every icon in the bar is a Nerd Font glyph, so a plain family
+    // leaves empty boxes everywhere.
+    property string fontMono: "JetBrainsMono Nerd Font"
+    property string fontUi: "JetBrainsMono Nerd Font"
+
+    // QML weights are the same numbers as OS/2 (Font.Medium == 500), so the
+    // config's style word maps straight across.
+    property int fontWeight: Font.Normal
+
+    readonly property var weightNames: ({
+        "Thin": Font.Thin, "ExtraLight": Font.ExtraLight, "Light": Font.Light,
+        "Regular": Font.Normal, "Medium": Font.Medium, "SemiBold": Font.DemiBold,
+        "Bold": Font.Bold, "ExtraBold": Font.ExtraBold, "Black": Font.Black
+    })
 
     property string name: "catppuccin-mocha"
 
@@ -114,5 +132,40 @@ Singleton {
         }
 
         onFileChanged: stateFile.reload()
+    }
+
+    FileView {
+        id: fontFile
+
+        path: root.fontPath
+        preload: true
+        watchChanges: true
+        printErrors: false
+
+        onLoaded: {
+            // "key = value", '#' comments. Small enough that a parser here
+            // beats another JSON file to keep in sync.
+            const lines = fontFile.text().split("\n")
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].split("#")[0].trim()
+                if (line.length === 0)
+                    continue
+                const eq = line.indexOf("=")
+                if (eq < 0)
+                    continue
+                const key = line.slice(0, eq).trim()
+                const value = line.slice(eq + 1).trim()
+                if (value.length === 0)
+                    continue
+                if (key === "mono")
+                    root.fontMono = value
+                else if (key === "ui")
+                    root.fontUi = value
+                else if (key === "weight" && root.weightNames[value] !== undefined)
+                    root.fontWeight = root.weightNames[value]
+            }
+        }
+
+        onFileChanged: fontFile.reload()
     }
 }

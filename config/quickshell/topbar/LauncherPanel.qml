@@ -51,7 +51,8 @@ Item {
                 anchors.leftMargin: 22
                 anchors.verticalCenter: parent.verticalCenter
                 text: "󰍉"
-                font.family: "JetBrainsMono Nerd Font"
+                font.family: Theme.fontMono
+                font.weight: Theme.fontWeight
                 font.pixelSize: 18
                 color: Theme.overlay0
             }
@@ -269,7 +270,8 @@ Item {
                         visible: !rowIcon.visible
                         text: resultRow.modelData.glyph
                             || (LauncherService.activeProvider ? LauncherService.activeProvider.glyph : "󰀻")
-                        font.family: "JetBrainsMono Nerd Font"
+                        font.family: Theme.fontMono
+                        font.weight: Theme.fontWeight
                         font.pixelSize: 17
                         color: resultRow.selected ? Theme.peach : Theme.overlay0
                     }

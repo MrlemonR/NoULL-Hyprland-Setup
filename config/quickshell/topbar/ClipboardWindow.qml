@@ -145,7 +145,8 @@ PanelWindow {
                 anchors.leftMargin: 22
                 anchors.verticalCenter: parent.verticalCenter
                 text: "󰍉"
-                font.family: "JetBrainsMono Nerd Font"
+                font.family: Theme.fontMono
+                font.weight: Theme.fontWeight
                 font.pixelSize: 18
                 color: Theme.overlay0
             }
@@ -398,7 +399,8 @@ PanelWindow {
                         Text {
                             anchors.right: parent.right
                             text: "󰐃"
-                            font.family: "JetBrainsMono Nerd Font"
+                            font.family: Theme.fontMono
+                            font.weight: Theme.fontWeight
                             font.pixelSize: 12
                             color: entryRow.modelData.pinned ? Theme.yellow : Theme.surface1
                             visible: entryRow.modelData.pinned || entryArea.containsMouse
@@ -414,7 +416,8 @@ PanelWindow {
                         Text {
                             anchors.right: parent.right
                             text: "󰅖"
-                            font.family: "JetBrainsMono Nerd Font"
+                            font.family: Theme.fontMono
+                            font.weight: Theme.fontWeight
                             font.pixelSize: 11
                             color: Theme.surface1
                             visible: entryArea.containsMouse

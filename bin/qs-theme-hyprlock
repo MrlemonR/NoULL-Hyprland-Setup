@@ -148,9 +148,23 @@ chmod +x "$DATESH"
 # 4. hyprlock.conf
 # ============================================================
 
-FONT_NAME="JetBrainsMono Nerd Font"
-[[ "$FONT_TTF" == *Iosevka* ]] && FONT_NAME="Iosevka Nerd Font"
-[[ -z "$FONT_TTF" ]] && FONT_NAME="monospace"
+# The lock screen follows qs-font like everything else. Guessing from whichever
+# TTF happened to be found (what this did before) meant hyprlock kept its own
+# font while the rest of the system moved.
+FONT_CONF="$HOME/.config/quickshell/font.conf"
+FONT_NAME="$(sed -n 's/^[[:space:]]*mono[[:space:]]*=[[:space:]]*//p' "$FONT_CONF" 2>/dev/null | head -1)"
+FONT_WEIGHT="$(sed -n 's/^[[:space:]]*weight[[:space:]]*=[[:space:]]*//p' "$FONT_CONF" 2>/dev/null | head -1)"
+[[ -z "$FONT_NAME" ]] && FONT_NAME="JetBrainsMono Nerd Font"
+
+# fontconfig is the authority on whether it can actually be drawn
+if ! fc-list : family | tr ',' '\n' | grep -qxF "$FONT_NAME"; then
+    FONT_NAME="monospace"
+    FONT_WEIGHT=""
+fi
+
+# hyprlock parses font_family with Pango, which wants the style word appended.
+# "Regular" is not a face name Pango resolves, so it is left off.
+[[ -n "$FONT_WEIGHT" && "$FONT_WEIGHT" != "Regular" ]] && FONT_NAME="$FONT_NAME $FONT_WEIGHT"
 
 # Klavye düzeni etiketi.
 #

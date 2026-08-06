@@ -161,7 +161,8 @@ PanelWindow {
                 anchors.leftMargin: 20
                 anchors.verticalCenter: parent.verticalCenter
                 text: "󰍉"
-                font.family: "JetBrainsMono Nerd Font"
+                font.family: Theme.fontMono
+                font.weight: Theme.fontWeight
                 font.pixelSize: 17
                 color: Theme.overlay0
             }

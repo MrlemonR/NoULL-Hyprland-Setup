@@ -644,7 +644,8 @@ Item {
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
                     text: "󰀦"
-                    font.family: "JetBrainsMono Nerd Font"
+                    font.family: Theme.fontMono
+                    font.weight: Theme.fontWeight
                     font.pixelSize: 26
                     color: Theme.red
                 }

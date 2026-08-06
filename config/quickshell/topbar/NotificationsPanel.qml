@@ -131,7 +131,8 @@ Item {
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         text: NotificationService.dnd ? "󰂛" : "󰂚"
-                        font.family: "JetBrainsMono Nerd Font"
+                        font.family: Theme.fontMono
+                        font.weight: Theme.fontWeight
                         font.pixelSize: 15
                         color: NotificationService.dnd ? Theme.overlay0 : Theme.mauve
                     }
@@ -470,7 +471,8 @@ Item {
                             anchors.centerIn: itemIcon
                             visible: !itemIcon.visible
                             text: "󰂚"
-                            font.family: "JetBrainsMono Nerd Font"
+                            font.family: Theme.fontMono
+                            font.weight: Theme.fontWeight
                             font.pixelSize: 18
                             color: Theme.surface2
                         }
@@ -540,7 +542,8 @@ Item {
                                     Text {
                                         anchors.centerIn: parent
                                         text: "󰅖"
-                                        font.family: "JetBrainsMono Nerd Font"
+                                        font.family: Theme.fontMono
+                                        font.weight: Theme.fontWeight
                                         font.pixelSize: 10
                                         color: closeArea.containsMouse ? Theme.base : Theme.subtext0
                                     }
@@ -610,7 +613,8 @@ Item {
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: "󰂜"
-                        font.family: "JetBrainsMono Nerd Font"
+                        font.family: Theme.fontMono
+                        font.weight: Theme.fontWeight
                         font.pixelSize: 24
                         color: Theme.surface1
                     }
@@ -694,7 +698,8 @@ Item {
                                 anchors.centerIn: parent
                                 visible: !detailIcon.visible
                                 text: "󰂚"
-                                font.family: "JetBrainsMono Nerd Font"
+                                font.family: Theme.fontMono
+                                font.weight: Theme.fontWeight
                                 font.pixelSize: 20
                                 color: Theme.surface2
                             }

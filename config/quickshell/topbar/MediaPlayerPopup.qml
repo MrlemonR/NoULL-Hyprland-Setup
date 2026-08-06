@@ -79,7 +79,8 @@ PopupWindow {
                         anchors.centerIn: parent
                         visible: !(root.player && root.player.trackArtUrl)
                         text: "󰝚"
-                        font.family: "JetBrainsMono Nerd Font"
+                        font.family: Theme.fontMono
+                        font.weight: Theme.fontWeight
                         color: Theme.overlay0
                         font.pixelSize: 22
                     }
@@ -250,7 +251,8 @@ PopupWindow {
                     anchors.centerIn: parent
                     text: sliderArea.progressBar
                     color: Theme.text
-                    font.family: "JetBrainsMono Nerd Font"
+                    font.family: Theme.fontMono
+                    font.weight: Theme.fontWeight
                     font.pixelSize: 10
                     font.bold: true
                     horizontalAlignment: Text.AlignHCenter

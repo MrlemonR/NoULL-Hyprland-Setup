@@ -333,7 +333,8 @@ PanelWindow {
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
                             text: modeButton.modelData.glyph
-                            font.family: "JetBrainsMono Nerd Font"
+                            font.family: Theme.fontMono
+                            font.weight: Theme.fontWeight
                             font.pixelSize: 24
                             color: modeArea.containsMouse ? Theme.mauve : Theme.subtext0
                         }

@@ -143,7 +143,8 @@ Item {
                 color: Theme.mauve
                 font.pixelSize: 18
                 font.bold: true
-                font.family: "JetBrainsMono Nerd Font"
+                font.family: Theme.fontMono
+                font.weight: Theme.fontWeight
             }
 
             Rectangle {
@@ -353,7 +354,8 @@ Item {
                             Text {
                                 anchors.centerIn: parent
                                 text: "󰅖"
-                                font.family: "JetBrainsMono Nerd Font"
+                                font.family: Theme.fontMono
+                                font.weight: Theme.fontWeight
                                 font.pixelSize: 9
                                 color: thumbArea.containsMouse ? Theme.base : Theme.text
                             }
@@ -476,7 +478,8 @@ Item {
                             color: Theme.mauve
                             font.pixelSize: 10
                             font.bold: true
-                            font.family: "JetBrainsMono Nerd Font"
+                            font.family: Theme.fontMono
+                            font.weight: Theme.fontWeight
                         }
 
                         Text {
@@ -494,14 +497,16 @@ Item {
                             visible: (chip.modelData.images || []).length > 0
                             text: "󰥶 " + (chip.modelData.images || []).length
                             color: Theme.blue
-                            font.family: "JetBrainsMono Nerd Font"
+                            font.family: Theme.fontMono
+                            font.weight: Theme.fontWeight
                             font.pixelSize: 9
                         }
 
                         Text {
                             anchors.verticalCenter: parent.verticalCenter
                             text: "󰅖"
-                            font.family: "JetBrainsMono Nerd Font"
+                            font.family: Theme.fontMono
+                            font.weight: Theme.fontWeight
                             font.pixelSize: 9
                             color: chipRemove.containsMouse ? Theme.red : Theme.surface2
 

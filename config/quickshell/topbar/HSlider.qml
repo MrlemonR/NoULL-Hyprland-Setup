@@ -45,7 +45,8 @@ Item {
         color: root.activeColor
         font.pixelSize: 13
         font.bold: true
-        font.family: "JetBrainsMono Nerd Font"
+        font.family: Theme.fontMono
+        font.weight: Theme.fontWeight
     }
 
     Item {
