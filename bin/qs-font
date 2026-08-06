@@ -38,27 +38,49 @@ read_conf() {
     done < "$CONF"
 }
 
+# -w/--weight sets only the face, leaving the families alone. The theme picker
+# uses it to cycle weights without having to know the current family.
+WEIGHT_ARG=""
+while [[ "${1:-}" == -* ]]; do
+    case "$1" in
+        -w|--weight) WEIGHT_ARG="${2:?--weight needs a face name}"; shift 2 ;;
+        *) printf '\033[1;31m✗\033[0m Unknown option: %s\n' "$1"; exit 1 ;;
+    esac
+done
+
 case "${1:-}" in
+    families)
+        # Just the Nerd Font families, one per line — what a picker can offer
+        # without listing every style variant. Mono/Propo are the same face at
+        # different spacings, so they would only pad the list.
+        fc-list : family | tr ',' '\n' | sed 's/[[:space:]]*$//' \
+            | grep -E ' Nerd Font$' | sort -u
+        exit 0
+        ;;
     list)
         fc-list : family | tr ',' '\n' | sort -u | grep -v '^$'
         exit 0
         ;;
     "")
-        read_conf
-        echo "mono   = $MONO"
-        echo "ui     = $UI"
-        echo "size   = $SIZE"
-        echo "weight = $WEIGHT"
-        exit 0
+        # No family given and no --weight either: just report.
+        if [[ -z "$WEIGHT_ARG" ]]; then
+            read_conf
+            echo "mono   = $MONO"
+            echo "ui     = $UI"
+            echo "size   = $SIZE"
+            echo "weight = $WEIGHT"
+            exit 0
+        fi
         ;;
 esac
 
-# Read the config first (for size), THEN take the names from the arguments —
-# read_conf assigns MONO/UI too, so doing it the other way round silently
-# overwrote what was just asked for.
+# Read the config first (for size and any value not being overridden), THEN
+# apply the arguments — read_conf assigns MONO/UI/WEIGHT too, so doing it the
+# other way round silently overwrote what was just asked for.
 read_conf
-MONO="$1"
-UI="${2:-$1}"
+MONO="${1:-$MONO}"
+UI="${2:-$MONO}"
+[[ -n "$WEIGHT_ARG" ]] && WEIGHT="$WEIGHT_ARG"
 SIZE="${SIZE:-10}"
 
 # NOTE: `fc-list | grep -q` under `set -o pipefail` always reports failure —

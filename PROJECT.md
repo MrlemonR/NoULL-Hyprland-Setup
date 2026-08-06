@@ -130,7 +130,8 @@ hyprctl layers -j                                       # which layer surfaces a
 | `ClipboardWindow.qml` | Bottom-anchored panel. Left/Right arrows switch tabs (plain only — Ctrl/Shift still move the text cursor). Picking an entry copies it, closes the panel and **pastes into the window underneath** (260ms later, once focus is back — see `qs-paste`). The entry is never removed from history; copying also makes it the newest one. |
 | `WallpaperWindow.qml` | Coverflow carousel. **↑/↓ switches Static ↔ Animated**; animated wallpapers live in `<theme>/Animated/` (mp4/webm/mkv/mov/gif) and their cards show a frame extracted by ffmpeg — the thumb filename is `md5(path).png`, computed identically by the script and by `Qt.md5()` in QML, so no IPC is needed to pair them. Opens on the **currently set** wallpaper. Left-click centre = apply (animated). Lists the active theme's folder, but the choice itself is theme-independent (see §4). |
 | `WallpaperTransition.qml` | `WlrLayer.Bottom` (above hyprpaper, below windows), `mask: Region {}` so it's click-through. Three random effects: circular reveal (80 clipped bands), block/pixelate fade, crossfade. Applies the wallpaper *after* the animation so there's no flash. |
-| `ThemeWindow.qml` | Bottom-anchored theme picker with palette swatches. Opens with the active theme selected. |
+| `ThemeWindow.qml` | Bottom-anchored picker with **two sections, Left/Right between them**: themes (palette swatches, opens on the active one) and fonts. Up/Down walks the active section, Enter applies and closes, typing searches the theme list. On the font side **Space cycles the weight** through Thin…ExtraBold and applies at once, so the effect is visible without leaving the picker; each row is drawn in the font it names. Arrow keys are taken from the search box's text cursor on purpose — the box only serves the theme list. |
+| `FontService.qml` | **Singleton.** The font side's data: installed families from `qs-font families` (only what fontconfig can see, since an absent family silently falls back and loses every bar icon), the eight weight names in OS/2 order, and `applyFamily` / `applyWeight` which both go back through `qs-font` rather than writing any config themselves. |
 | `ScreenshotWindow.qml` | Screenshot UI. Stages: `pick` → `selecting` → `confirm`. Shows a **frozen full-screen grab** as its background so the screen appears frozen; drops keyboard focus during `selecting` so slurp works. The bar is part of the frozen frame on purpose — since the overlay sits above it, the clock and runcat stay frozen while the UI is open. |
 
 ### Window switcher (Alt+Tab)
@@ -225,7 +226,7 @@ still in these QML files predate that and were not rewritten; anything new is En
 | `Super + V` | Clipboard history |
 | `Super + Shift + S` | Screenshot UI (freezes the screen) |
 | `Super + Shift + Z` | Wallpaper picker |
-| `Super + Ctrl + Z` | Theme picker |
+| `Super + Ctrl + Z` | Theme **and font** picker — `←`/`→` between the two sections, `Space` cycles font weight |
 | `Super + Alt + C` | Launcher, System tab |
 | `Super + Shift + P` | Performance mode toggle (wallpaper, blur, shadows, animations off; bar polls slower) |
 | `Super + K` | Keyboard layout switch |
@@ -235,7 +236,8 @@ still in these QML files predate that and were not rewritten; anything new is En
 Calendar has no keybind — click the date in the bar. IPC equivalents:
 `qs -c topbar ipc call <target> <function>` where targets are
 `launcher, clipboard, calendar, notePreview, theme, wallpaper, wallpaperFx, screenshot,
-switcher`.
+switcher`. A few skip straight to a section: `launcher system`, `launcher files`,
+`theme fonts`.
 
 ---
 
