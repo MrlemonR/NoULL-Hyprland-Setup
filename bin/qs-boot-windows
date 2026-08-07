@@ -1,0 +1,211 @@
+#!/usr/bin/env bash
+#
+# Reboot straight into Windows — one shot, nothing permanent.
+#
+#   qs-boot-windows                   -> arm Windows for the next boot, reboot now
+#   qs-boot-windows --dry-run         -> show the target it would use, touch nothing
+#   qs-boot-windows --set             -> only arm the target (root; this is what sudo runs)
+#   sudo qs-boot-windows --install    -> install the root helper + sudoers rule
+#   sudo qs-boot-windows --uninstall  -> remove both
+#
+# Two ways to arm, tried in this order:
+#   1. efibootmgr --bootnext  -> the firmware boots Windows on the next boot
+#      only. GRUB never appears, and nothing on disk changes. Preferred.
+#   2. grub-reboot            -> GRUB's own one-shot (next_entry in grubenv),
+#      for machines where Windows has no NVRAM entry of its own. Needs the menu
+#      entry that qs-grub-windows writes.
+#
+# Why a second copy of this script in /usr/local/bin:
+#   Arming the next boot writes EFI variables, so it needs root. The launcher
+#   runs its entries detached (Quickshell.execDetached) with no terminal and no
+#   polkit agent is running here, so there is nowhere to type a password — hence
+#   the NOPASSWD sudoers rule. That rule must point at a path the user cannot
+#   write to: ~/.local/bin is user-writable, so a rule pointing there would hand
+#   root to anything that can write a file into it. /usr/local/bin is root-owned.
+#   --install keeps the copy in sync; re-run it after editing this file.
+#
+# NOTE: Windows likes to put itself first in BootOrder when it boots (updates
+# especially). That is Windows, not this script — if Arch stops coming up by
+# default afterwards, put the order back with `efibootmgr -o`.
+
+set -u
+
+SELF="$(readlink -f "$0")"
+HELPER="/usr/local/bin/qs-boot-windows"
+SUDOERS="/etc/sudoers.d/lemonrice-boot-windows"
+GRUB_ENTRY_ID="lemonrice-windows"
+GRUB_ENTRY_FILE="/etc/grub.d/35_lemonrice-windows"
+
+MODE="boot"
+while (( $# )); do
+    case "$1" in
+        --dry-run)   MODE="dry"; shift ;;
+        --set)       MODE="set"; shift ;;
+        --install)   MODE="install"; shift ;;
+        --uninstall) MODE="uninstall"; shift ;;
+        -h|--help)
+            awk 'NR>1 && /^#/ { sub(/^# ?/, ""); print; next } NR>1 { exit }' "$0"
+            exit 0 ;;
+        *) echo "qs-boot-windows: unknown option '$1'" >&2; exit 1 ;;
+    esac
+done
+
+say() { echo "windows: $*"; }
+die() { echo "windows: $*" >&2; exit 1; }
+
+# The launcher path has no terminal, so failures have to be visible somewhere.
+notify() {
+    command -v notify-send >/dev/null 2>&1 &&
+        notify-send -a qs-boot-windows -u critical "Boot to Windows" "$1"
+    echo "windows: $1" >&2
+}
+
+# ============================================================
+# Find Windows
+# ============================================================
+
+# Boot number of the Windows Boot Manager NVRAM entry, e.g. 0000.
+# Matched on the loader path rather than the title — the title is renameable
+# and localised, bootmgfw.efi is not. Old efibootmgr needs -v to print paths,
+# new ones print them anyway.
+efi_boot_num() {
+    local out num
+    for flag in "" "-v"; do
+        out="$(efibootmgr $flag 2>/dev/null)" || continue
+        num="$(printf '%s\n' "$out" \
+            | grep -iE '^Boot[0-9A-Fa-f]{4}\*?.*bootmgfw\.efi' \
+            | head -1 | sed -E 's/^Boot([0-9A-Fa-f]{4}).*/\1/')"
+        [[ -z "$num" ]] && num="$(printf '%s\n' "$out" \
+            | grep -iE '^Boot[0-9A-Fa-f]{4}\*?[[:space:]]+Windows Boot Manager' \
+            | head -1 | sed -E 's/^Boot([0-9A-Fa-f]{4}).*/\1/')"
+        [[ -n "$num" ]] && { printf '%s\n' "$num"; return 0; }
+    done
+    return 1
+}
+
+grub_entry_available() {
+    command -v grub-reboot >/dev/null 2>&1 && [[ -e "$GRUB_ENTRY_FILE" ]]
+}
+
+# ============================================================
+# Arm the next boot (root)
+# ============================================================
+
+arm() {
+    local num
+    if num="$(efi_boot_num)"; then
+        if efibootmgr --bootnext "$num" >/dev/null 2>&1; then
+            say "BootNext=$num — the firmware boots Windows once, GRUB is skipped"
+            return 0
+        fi
+        echo "windows: efibootmgr --bootnext $num failed" >&2
+    else
+        echo "windows: no EFI boot entry points at bootmgfw.efi" >&2
+    fi
+
+    if grub_entry_available; then
+        if grub-reboot "$GRUB_ENTRY_ID" >/dev/null 2>&1; then
+            say "grub next_entry=$GRUB_ENTRY_ID — GRUB boots Windows once"
+            return 0
+        fi
+        echo "windows: grub-reboot $GRUB_ENTRY_ID failed" >&2
+    else
+        echo "windows: no GRUB entry either — run 'sudo qs-grub-windows' first" >&2
+    fi
+    return 1
+}
+
+# ============================================================
+# Install / uninstall the root helper
+# ============================================================
+
+install_helper() {
+    [[ $EUID -eq 0 ]] || die "--install needs root  ->  sudo $SELF --install"
+    [[ "$SELF" != "$HELPER" ]] || die "--install must be run from the copy in ~/.local/bin"
+
+    local who="${SUDO_USER:-%wheel}"
+
+    install -Dm755 -o root -g root "$SELF" "$HELPER"
+
+    # A malformed file in sudoers.d breaks sudo for everything on the machine,
+    # so it gets validated before it goes anywhere near /etc/sudoers.d.
+    local tmp; tmp="$(mktemp)"
+    {
+        echo "# Written by qs-boot-windows --install. Lets the launcher entry arm the"
+        echo "# next boot without a password prompt it could never answer."
+        echo "$who ALL=(root) NOPASSWD: $HELPER --set"
+    } > "$tmp"
+
+    if ! visudo -cqf "$tmp"; then
+        rm -f "$tmp" "$HELPER"
+        die "the generated sudoers rule did not validate — nothing installed"
+    fi
+
+    install -Dm440 -o root -g root "$tmp" "$SUDOERS"
+    rm -f "$tmp"
+
+    say "installed $HELPER"
+    say "installed $SUDOERS ($who, password-free for --set only)"
+
+    local num
+    if num="$(efi_boot_num)"; then
+        say "target: NVRAM entry Boot$num (Windows Boot Manager)"
+    elif grub_entry_available; then
+        say "target: GRUB entry $GRUB_ENTRY_ID (no NVRAM entry found)"
+    else
+        say "WARNING: no Windows target found yet — run 'sudo qs-grub-windows' or check that Windows is installed in UEFI mode"
+    fi
+}
+
+uninstall_helper() {
+    [[ $EUID -eq 0 ]] || die "--uninstall needs root  ->  sudo $SELF --uninstall"
+    rm -f "$SUDOERS" && say "removed $SUDOERS"
+    rm -f "$HELPER"  && say "removed $HELPER"
+}
+
+# ============================================================
+# Main
+# ============================================================
+
+case "$MODE" in
+    install)   install_helper ;;
+    uninstall) uninstall_helper ;;
+
+    set)
+        [[ $EUID -eq 0 ]] || die "--set needs root"
+        arm || exit 1
+        ;;
+
+    dry)
+        num=""
+        if num="$(efi_boot_num)"; then
+            say "would set BootNext=$num and reboot (GRUB skipped)"
+        elif grub_entry_available; then
+            say "would set grub next_entry=$GRUB_ENTRY_ID and reboot"
+        else
+            die "no Windows boot target found"
+        fi
+        [[ $EUID -eq 0 ]] && exit 0
+        if [[ -x "$HELPER" && -e "$SUDOERS" ]]; then
+            say "root path: sudo -n $HELPER --set (installed)"
+        else
+            say "root path: NOT installed — run 'sudo $SELF --install' or it only works from a terminal"
+        fi
+        ;;
+
+    boot)
+        if [[ $EUID -eq 0 ]]; then
+            arm || exit 1
+        elif sudo -n "$HELPER" --set 2>/dev/null; then
+            :
+        elif [[ -t 0 ]] && sudo "$SELF" --set; then
+            # Started from a terminal: asking for the password is fine here.
+            :
+        else
+            notify "Run once:  sudo ~/.local/bin/qs-boot-windows --install"
+            exit 1
+        fi
+        say "rebooting into Windows"
+        systemctl reboot
+        ;;
+esac

@@ -269,6 +269,12 @@ cat <<'TXT'
   3. Optional — if Zen Browser is installed, restart it so the colours apply
      (userChrome.css is only read at startup).
 
+  4. Optional — dual boot with Windows. The launcher's "Boot to Windows" entry
+     needs a password-free root path, since it writes an EFI variable:
+       sudo ~/.local/bin/qs-boot-windows --install
+     If Windows has no EFI entry of its own, add it to the GRUB menu first:
+       sudo ~/.local/bin/qs-grub-windows
+
   Keybindings
   ───────────
   Alt+Space       launcher             Super+V         clipboard history

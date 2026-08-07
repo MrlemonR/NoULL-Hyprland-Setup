@@ -47,7 +47,112 @@ KEY_FULL=$(sha1 "${N_APP}${SEP}${N_TITLE}${SEP}${N_BODY}")
 KEY_APP=$(sha1 "${N_APP}${SEP}${N_TITLE}")
 
 # ============================================================
-# 2. GERÇEK İKONU ÖNBELLEKTEN AL
+# 2. DUPLICATE FILTER
+#
+# A phone message gets announced twice whenever a desktop client
+# for the same service is running: the client posts its own
+# notification and KDE Connect relays the phone's copy.
+#
+#   elecwhat      "Bige Abla" / "galiba"
+#   KDE Connect   "WhatsApp"  / "Bige Abla: galiba"
+#
+# The second shape is KDE Connect's ticker, which is literally
+# "title: text" (see the ticker property on
+# org.kde.kdeconnect.device.notifications.notification). Folding
+# it back onto "title" / "text" makes both shapes hash alike, so
+# whichever lands first wins and the other one is dropped. The
+# local client is normally ahead of the phone round-trip, which
+# is also the copy worth keeping: real sender as the title and
+# the contact avatar as the icon.
+#
+# Identical re-posts are caught too: when an app refreshes a
+# notification through replaces_id, dunst runs this script again
+# and the proxy would build a second popup rather than update the
+# first one.
+# ============================================================
+
+DEDUP_DIR="$CACHE_DIR/dedup"
+
+# The relay lags the local client by about a second, so cross-shape matches
+# are given room. Identical re-posts only collapse back-to-back, which keeps
+# repeated one-shot notifications (keyboard layout, volume) always visible.
+DEDUP_WINDOW=15
+DEDUP_EXACT_WINDOW=3
+
+NOW=$(date +%s)
+
+mkdir -p "$DEDUP_DIR"
+
+# Every shape this message could also arrive in, as "window<TAB>mode<TAB>signature"
+signatures() {
+    printf '%s\t%s\t%s\n' "$DEDUP_EXACT_WINDOW" exact "$(sha1 "${N_TITLE}${SEP}${N_BODY}")"
+
+    # "Sender: message" -> fold onto the plain "Sender" / "message" shape
+    if [[ "$N_BODY" == *": "* ]]; then
+        local prefix="${N_BODY%%: *}"
+        local rest="${N_BODY#*: }"
+
+        [[ -z "$prefix" ]] && return
+
+        printf '%s\t%s\t%s\n' "$DEDUP_WINDOW" cross \
+            "$(sha1 "$(normalize "$prefix")${SEP}$(normalize "$rest")")"
+
+        # A ticker can carry the whole conversation so far ("msg1<br/>msg2");
+        # only the last line is the message that just came in.
+        local last="${rest##*<br/>}"
+        last="${last##*<br>}"
+
+        if [[ "$last" != "$rest" ]]; then
+            printf '%s\t%s\t%s\n' "$DEDUP_WINDOW" cross \
+                "$(sha1 "$(normalize "$prefix")${SEP}$(normalize "$last")")"
+        fi
+    fi
+}
+
+# Records a signature under our app name, failing if an equivalent
+# notification is still fresh
+claim() {
+    local window="$1"
+    local mode="$2"
+    local file="$DEDUP_DIR/$3"
+    local mtime owner
+
+    if mtime=$(stat -c %Y "$file" 2>/dev/null); then
+        if (( NOW - mtime < window )); then
+            [[ "$mode" == exact ]] && return 1
+
+            # Only a *different* source re-announcing the message is a
+            # duplicate. One app repeating itself is someone sending the same
+            # text twice, which still deserves its own popup.
+            read -r owner < "$file" 2>/dev/null || owner=""
+            [[ "$owner" != "$N_APP" ]] && return 1
+        fi
+
+        printf '%s\n' "$N_APP" > "$file" 2>/dev/null
+        return 0
+    fi
+
+    # noclobber makes the create atomic, so two notifications racing for the
+    # same signature can never both win
+    ( set -o noclobber; printf '%s\n' "$N_APP" > "$file" ) 2>/dev/null
+}
+
+while IFS=$'\t' read -r WINDOW MODE SIG; do
+    claim "$WINDOW" "$MODE" "$SIG" || exit 0
+done < <(signatures)
+
+# Old signatures are dead weight; sweep them now and then. dunst-icon-cache
+# prunes CACHE_DIR but skips subdirectories, so this one is ours to clean.
+STAMP="$DEDUP_DIR/.pruned"
+LAST_PRUNE=$(stat -c %Y "$STAMP" 2>/dev/null || echo 0)
+
+if (( NOW - LAST_PRUNE > 60 )); then
+    touch "$STAMP" 2>/dev/null
+    find "$DEDUP_DIR" -maxdepth 1 -type f ! -name '.pruned' -mmin +2 -delete 2>/dev/null &
+fi
+
+# ============================================================
+# 3. GERÇEK İKONU ÖNBELLEKTEN AL
 #
 # dunst-icon-cache, uygulamanın ham olarak yolladığı ikonu
 # (Discord avatarı / sunucu resmi gibi) PNG'ye çevirip buraya
@@ -95,10 +200,10 @@ if [[ "$ICON" == /* && ! -f "$ICON" ]]; then
 fi
 
 # ============================================================
-# 3. YEDEK SEÇENEKLER
+# 4. YEDEK SEÇENEKLER
 # ============================================================
 
-# 3a. Dunst'ın çözebildiği bir ikon yolu varsa onu kullan
+# 4a. Dunst'ın çözebildiği bir ikon yolu varsa onu kullan
 if [[ -z "$ICON" || "$ICON" == "unknown" ]]; then
     ICON="${DUNST_ICON_PATH:-$4}"
 fi
@@ -112,17 +217,17 @@ if [[ "$ICON" == /tmp/* && -f "$ICON" ]]; then
     fi
 fi
 
-# 3b. .desktop girdisinden uygulama ikonu
+# 4b. .desktop girdisinden uygulama ikonu
 if [[ -z "$ICON" || "$ICON" == "unknown" ]]; then
     ICON="${DUNST_DESKTOP_ENTRY,,}"
 fi
 
-# 3c. Uygulamanın adından uygulama ikonu
+# 4c. Uygulamanın adından uygulama ikonu
 if [[ -z "$ICON" || "$ICON" == "unknown" ]]; then
     ICON="${APP,,}"
 fi
 
-# 3d. Hiçbir şey bulunamazsa varsayılan ikon
+# 4d. Hiçbir şey bulunamazsa varsayılan ikon
 if [[ -z "$ICON" ]]; then
     ICON="dialog-information"
 fi

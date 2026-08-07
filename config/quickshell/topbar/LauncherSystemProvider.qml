@@ -15,6 +15,8 @@ LauncherProvider {
         { title: "Log Out",       subtitle: "End Hyprland session", glyph: "󰍃", cmd: ["sh", "-c", "hyprctl dispatch 'hl.dsp.exit()' || loginctl terminate-user \"$USER\""] },
         { title: "Suspend",       subtitle: "Sleep",                glyph: "󰤄", cmd: ["systemctl", "suspend"] },
         { title: "Reboot",        subtitle: "Restart the machine",  glyph: "󰜉", cmd: ["systemctl", "reboot"] },
+        // One-shot: arms Windows for the next boot only, then reboots.
+        { title: "Boot to Windows", subtitle: "Restart into Windows", glyph: "󰖳", cmd: ["sh", "-c", "$HOME/.local/bin/qs-boot-windows"] },
         { title: "Shut Down",     subtitle: "Power off",            glyph: "󰐥", cmd: ["systemctl", "poweroff"] },
         { title: "Performance Mode", subtitle: "Toggle wallpaper/blur/animations off", glyph: "󰓅", cmd: ["sh","-c","$HOME/.local/bin/qs-mode toggle"] },
         { title: "Reload Shell",  subtitle: "Restart quickshell",   glyph: "󰑓", cmd: ["sh", "-c", "quickshell -c topbar & disown"] },

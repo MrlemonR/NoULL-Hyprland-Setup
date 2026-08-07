@@ -4,15 +4,13 @@ hl.config({
         accel_profile = "flat",
         kb_layout = "us,tr",
         --kb_options = "caps:swapescape",
-        -- Without this, a Super+arrow focus change gets undone by the next
-        -- mouse jitter: cursor.no_warps (cursor.lua) leaves the pointer over
-        -- the OLD window, and with mouse_refocus on, follow_mouse=1 refocuses
-        -- whatever is under the cursor on ANY movement, not just when it
-        -- crosses into a different window. false restricts hover-refocus to
-        -- an actual window-boundary crossing, so a keybind-driven focus
-        -- change sticks until you deliberately move the mouse onto something
-        -- else.
-        mouse_refocus = false,
+        -- NOTE: mouse_refocus was set to false here for a while, to stop a
+        -- Super+arrow focus change being undone by the next mouse jitter.
+        -- That problem is solved differently now (cursor.no_warps left at its
+        -- default so the pointer follows focus, and Alt+Tab going through
+        -- qs-focus-keep-cursor instead), so the override is gone: leaving
+        -- pointer focus stale is a good way to have a press and its release
+        -- land on two different surfaces, which reads as a stuck drag.
     },
 })
 
