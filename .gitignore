@@ -15,6 +15,10 @@ config/quickshell/favorites.json
 config/quickshell/clipboard-pins.json
 config/quickshell/wallpapers.conf
 config/quickshell/wallpaper.txt
+# Control centre toggles — qs-settings yazıyor, yokken hepsi açık sayılıyor
+config/quickshell/settings.json
+# Bar widget toggles — BarSettings.qml yazıyor, yokken hepsi açık (cava hariç)
+config/quickshell/bar.json
 
 # çöp
 **/.venv/

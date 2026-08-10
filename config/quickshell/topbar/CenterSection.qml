@@ -25,8 +25,46 @@ Item {
         return name.charAt(0).toUpperCase() + name.slice(1)
     }
 
-    implicitWidth: specialActive ? specialBox.width : normalRow.implicitWidth
+    // Workspaces plus, when the spectrum strips are on, one on either side.
+    // They are part of the width so the workspaces stay centred on the screen
+    // instead of being pushed off by whichever side drew wider.
+    readonly property bool workspacesShown: BarSettings.enabled("workspaces")
+
+    readonly property int coreWidth: {
+        if (!root.workspacesShown)
+            return 0
+        return specialActive ? specialBox.width : normalRow.implicitWidth
+    }
+
+    readonly property int cavaWidth: leftCava.visible ? leftCava.implicitWidth + 10 : 0
+
+    implicitWidth: root.coreWidth + 2 * root.cavaWidth
     implicitHeight: 22
+
+    // Nothing is drawn here — it is the anchor the strips hang off, so both
+    // sides stay glued to the workspaces as they resize on hover.
+    Item {
+        id: core
+
+        anchors.centerIn: parent
+        width: root.coreWidth
+        height: 22
+    }
+
+    CavaBar {
+        id: leftCava
+
+        mirrored: true
+        anchors.right: core.left
+        anchors.rightMargin: 10
+        anchors.verticalCenter: parent.verticalCenter
+    }
+
+    CavaBar {
+        anchors.left: core.right
+        anchors.leftMargin: 10
+        anchors.verticalCenter: parent.verticalCenter
+    }
 
     Timer {
         interval: PerfMode.every(3000)
@@ -114,7 +152,7 @@ Item {
         spacing: 6
 
         opacity: root.specialActive ? 0 : 1
-        visible: opacity > 0
+        visible: root.workspacesShown && opacity > 0
         scale: root.specialActive ? 0.85 : 1
 
         Behavior on opacity {
@@ -264,7 +302,7 @@ Item {
         border.width: 1
 
         opacity: root.specialActive ? 1 : 0
-        visible: opacity > 0
+        visible: root.workspacesShown && opacity > 0
         scale: root.specialActive ? 1 : 0.85
 
         Behavior on opacity {

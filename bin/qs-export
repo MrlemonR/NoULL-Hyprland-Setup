@@ -53,7 +53,8 @@ copy_dir "$CFG/hypr" "$DEST/config/hypr" \
 copy_dir "$CFG/quickshell" "$DEST/config/quickshell" \
     --exclude='generated/' --exclude='favorites.json' \
     --exclude='clipboard-pins.json' --exclude='wallpapers.conf' \
-    --exclude='wallpaper.txt' --exclude='wallpaper-defaults.conf'
+    --exclude='wallpaper.txt' --exclude='wallpaper-defaults.conf' \
+    --exclude='settings.json' --exclude='bar.json'
 
 # kitty — kitty.conf yalnızca include satırlarından ibaret; KittyLemon.conf ve
 # arka plan resimleri olmadan terminal düzgün açılmıyor

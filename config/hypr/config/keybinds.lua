@@ -53,15 +53,18 @@ hl.bind(mainMod .. " + mouse:273", hl.dsp.window.resize())
 hl.bind(mainMod .. " + Q",          hl.dsp.exec_cmd(launchPrefix .. TERMINAL))
 hl.bind(mainMod .. " + E",          hl.dsp.exec_cmd(launchPrefix .. FILE_MANAGER))
 hl.bind(mainMod .. " + T",          hl.dsp.exec_cmd(launchPrefix .. EDITOR))
-hl.bind(mainMod .. " + SHIFT + C",   hl.dsp.exec_cmd("gnome-calculator"))
+hl.bind(mainMod .. " + SHIFT + C",  hl.dsp.exec_cmd("gnome-calculator"))
 hl.bind(mainMod .. " + B",          hl.dsp.exec_cmd(launchPrefix .. BROWSER))
 hl.bind("CONTROL + SHIFT + Escape", hl.dsp.exec_cmd(launchPrefix .. TERMINAL .. " -e btop"))
 hl.bind(mainMod .. " + period",     hl.dsp.exec_cmd(noctCall .. "launcher emoji"))
 hl.bind("ALT + Space",              hl.dsp.exec_cmd("qs -c topbar ipc call launcher toggle"))
 hl.bind(mainMod .. " + V",          hl.dsp.exec_cmd("qs -c topbar ipc call clipboard toggle"))
 hl.bind(mainMod .. " + SHIFT + E",  hl.dsp.exec_cmd("kitty -e yazi"))
-hl.bind(mainMod .. " + ALT + X",    hl.dsp.exec_cmd("gcolor3"))
-hl.bind(mainMod .. " + C",    hl.dsp.exec_cmd("claude-desktop"))
+-- hyprpicker over the frozen screen, then the control centre opens on the
+-- colour page with the hex (also copied to the clipboard). Was gcolor3.
+hl.bind(mainMod .. " + ALT + X",    hl.dsp.exec_cmd(os.getenv("HOME") .. "/.local/bin/qs-color pick"))
+hl.bind(mainMod .. " + C",          hl.dsp.exec_cmd("claude-desktop"))
+hl.bind(mainMod .. " + M",          hl.dsp.exec_cmd("kitty -e noull-pm"))
 ---------------------------
 ---- HARDWARE CONTROLS ----
 ---------------------------
@@ -140,4 +143,6 @@ hl.bind(mainMod .. " + K", hl.dsp.exec_cmd(os.getenv("HOME") .. "/.local/bin/qs-
 
 hl.bind(mainMod .. " + SHIFT + Z",   hl.dsp.exec_cmd("qs -c topbar ipc call wallpaper toggle"))
 hl.bind(mainMod .. " + CONTROL + Z", hl.dsp.exec_cmd("qs -c topbar ipc call theme toggle"))
+-- Control centre — the same panel the running cat in the bar opens
+hl.bind(mainMod .. " + CONTROL + C", hl.dsp.exec_cmd("qs -c topbar ipc call controlCenter toggle"))
 -- (takvim zaten bardaki tarihe tıklanınca açılıyor; Super+SHIFT+C hesap makinesinde)

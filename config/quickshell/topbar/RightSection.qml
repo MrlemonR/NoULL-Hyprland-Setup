@@ -113,18 +113,24 @@ RowLayout {
     }
 
     // Beş süreç birden açıyor (ddcutil dahil, en pahalısı o);
-    // performans modunda aralık uzuyor.
+    // performans modunda aralık uzuyor. Anything switched off in the control
+    // centre's Topbar page also stops being polled — this is the most
+    // expensive thing the bar does, and there is no point measuring what is
+    // not on screen.
     Timer {
         interval: PerfMode.every(2000)
-        running: true
+        running: statsRect.visible || volumeRect.visible
         repeat: true
         triggeredOnStart: true
         onTriggered: {
-            cpuProc.running = true
-            ramProc.running = true
-            tempProc.running = true
-            volProc.running = true
-            briProc.running = true
+            if (statsRect.visible) {
+                cpuProc.running = true
+                ramProc.running = true
+                tempProc.running = true
+                briProc.running = true
+            }
+            if (volumeRect.visible)
+                volProc.running = true
         }
     }
 
@@ -161,7 +167,7 @@ RowLayout {
 
     Rectangle {
         id: mediaRect
-        visible: root.activePlayer !== null
+        visible: BarSettings.enabled("media") && root.activePlayer !== null
         color: mediaArea.containsMouse ? Theme.surface0 : "transparent"
         radius: 0
         implicitWidth: mediaRow.implicitWidth + 10
@@ -258,10 +264,12 @@ RowLayout {
         width: 1
         height: 14
         color: Theme.surface1
-        visible: mediaRect.visible
+        visible: mediaRect.visible && statsRect.visible
     }
 
     Rectangle {
+        id: statsRect
+        visible: BarSettings.enabled("stats")
         color: sysArea.containsMouse ? Theme.surface0 : "transparent"
         radius: 0
         implicitWidth: sysRow.implicitWidth + 10
@@ -304,10 +312,12 @@ RowLayout {
         width: 1
         height: 14
         color: Theme.surface1
+        visible: statsRect.visible && volumeRect.visible
     }
 
     Rectangle {
         id: volumeRect
+        visible: BarSettings.enabled("volume")
         color: volumeArea.containsMouse ? Theme.surface0 : "transparent"
         radius: 0
         implicitWidth: volumeRow.implicitWidth + 8
@@ -336,11 +346,12 @@ RowLayout {
         width: 1
         height: 14
         color: Theme.surface1
+        visible: volumeRect.visible && button.visible
     }
-property bool menuOpen: false
 
 Rectangle {
     id: button
+    visible: BarSettings.enabled("tray")
     width: 20
     height: 20
 
@@ -381,11 +392,14 @@ SystemTrayPopup {
         width: 1
         height: 14
         color: Theme.surface1
+        visible: button.visible && notifButton.visible
     }
 
     // ---------------- Bildirimler (en sağ) ----------------
     Rectangle {
         id: notifButton
+
+        visible: BarSettings.enabled("notifications")
 
         color: notifArea.containsMouse ? Theme.surface0 : "transparent"
         radius: 0

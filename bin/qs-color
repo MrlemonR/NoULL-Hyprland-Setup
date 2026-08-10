@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+#
+# Screen colour picker for the control centre.
+#
+#   qs-color pick     freeze the screen, pick a colour, open the panel on it
+#   qs-color list     print the history, newest first
+#   qs-color clear    empty the history
+#
+# hyprpicker does the picking and copies the hex to the clipboard itself (-a).
+# The same hex is prepended to ~/.local/share/quickshell/colors.json, which the
+# bar watches, and then the control centre is opened on its colour page.
+#
+# The file is the channel on purpose: quickshell 0.3 `ipc call` rejects
+# arguments (PROJECT.md §1 #1), so there is no way to hand the colour over on
+# the call itself.
+#
+# Bound to Super+Alt+X, and to the Color tile in the control centre — both go
+# through here so the picker behaves the same either way.
+
+set -uo pipefail
+
+STORE="$HOME/.local/share/quickshell/colors.json"
+LIMIT=24
+
+die() { echo "qs-color: $*" >&2; exit 1; }
+
+remember() {
+    local hex="$1" json
+    mkdir -p "$(dirname "$STORE")"
+    [[ -s "$STORE" ]] || printf '[]' > "$STORE"
+
+    # Newest first, no duplicates, capped. A repeat pick moves the colour to
+    # the front instead of filling the row with the same swatch.
+    json=$(jq --arg c "$hex" --argjson n "$LIMIT" \
+        '[$c] + (map(select(. != $c))) | .[0:$n]' "$STORE" 2>/dev/null) \
+        || json="[\"$hex\"]"
+
+    # Truncate in place — the bar watches this path and a rename would swap the
+    # inode out from under the watch.
+    printf '%s\n' "$json" > "$STORE"
+}
+
+case "${1:-pick}" in
+    pick)
+        command -v hyprpicker >/dev/null || die "hyprpicker is not installed"
+
+        # The control centre closes itself before running this, but the surface
+        # takes a frame or two to go away and hyprpicker freezes whatever is on
+        # screen — without this the panel is baked into the frozen image. Not
+        # noticeable from the keybind, where there is nothing to wait for.
+        sleep 0.15
+
+        # -a copies to the clipboard, -l gives lowercase hex.
+        #
+        # NOTE: -q used to be in here as well and it swallowed the result — the
+        # colour reached the clipboard but stdout came back empty, so the panel
+        # never opened. Nothing is parsed positionally now: pull the first
+        # #rrggbb out of whatever was printed, and if the build printed nothing
+        # at all, fall back to the clipboard, which -a always fills.
+        raw=$(hyprpicker -a -l -f hex 2>/dev/null)
+        rc=$?
+
+        # Cancelled with Escape. Checked before the clipboard fallback, or a
+        # cancelled pick would "succeed" with the previous colour.
+        [[ $rc -eq 0 ]] || exit 0
+
+        hex=$(printf '%s\n' "$raw" | grep -oiE '#[0-9a-f]{6}' | head -1)
+        [[ -n "$hex" ]] || hex=$(wl-paste -n 2>/dev/null | grep -oiE '^#[0-9a-f]{6}$' | head -1)
+        [[ -n "$hex" ]] || die "hyprpicker returned no colour"
+
+        hex=$(printf '%s' "$hex" | tr '[:upper:]' '[:lower:]')
+
+        remember "$hex"
+        qs -c topbar ipc call controlCenter color >/dev/null 2>&1 || true
+        echo "$hex"
+        ;;
+    list)
+        [[ -s "$STORE" ]] && jq -r '.[]' "$STORE" 2>/dev/null
+        ;;
+    clear)
+        mkdir -p "$(dirname "$STORE")"
+        printf '[]\n' > "$STORE"
+        ;;
+    -h|--help|help)
+        sed -n '3,/^set -u/p' "$0" | sed 's/^#\{0,1\} \{0,1\}//; $d'
+        ;;
+    *)
+        die "unknown command '$1' — try qs-color --help"
+        ;;
+esac

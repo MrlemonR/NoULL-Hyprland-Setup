@@ -15,6 +15,13 @@ Log out and back in when it finishes.
 
 - **quickshell top bar** — workspaces, media controls, CPU/RAM/temperature,
   volume, system tray, notification centre, running cat
+- **Control centre** (`Super+Ctrl+C`, or click the running cat) — buttons that
+  turn the panel into the page you pressed: appearance effects, system toggles,
+  which bar widgets are drawn, phone (adb), colour picker, reload
+- **Colour picker** (`Super+Alt+X`) — hyprpicker over the frozen screen, then
+  the panel shows the hex/RGB/HSL and a history you can copy from
+- **Phone** — finds your paired Android over the network by itself, then
+  streams it with scrcpy, takes screenshots, sends files, opens a shell
 - **Launcher** (`Alt+Space`) — apps, file search, favourites, system actions
 - **Clipboard history** (`Super+V`) — pick an entry and it is pasted straight
   into the focused window
@@ -40,6 +47,48 @@ Desktop all read from it.
 qs-theme nord          # apply a theme
 qs-palette list        # list themes
 ```
+
+## Control centre
+
+Click the running cat in the bar (or `Super+Ctrl+C`). Pressing a button turns
+the panel into that page instead of opening a window:
+
+| Page | What is on it |
+|---|---|
+| **Appearance** | animations, blur, shadows, transparency, window gaps |
+| **System** | encrypted DNS, performance mode, microphone |
+| **Top Bar** | which bar widgets are drawn, plus an optional cava spectrum either side of the workspaces |
+| **Phone** | type the port Wireless debugging shows, then stream / screenshot / send file / shell / reboot |
+| **Color** | hyprpicker, then hex + RGB + HSL and a history to copy from |
+| **Reload** | restart the shell in place |
+
+Everything also works from the command line:
+
+```bash
+qs-settings                       # animations / blur / shadows / transparency / gaps
+qs-settings toggle animations
+qs-mode toggle                    # performance mode
+qs-color pick                     # hyprpicker -> clipboard + the colour page
+qs-adb connect 41709              # the port Wireless debugging shows
+qs-adb connect                    # or let it search: cache -> mDNS -> port sweep
+qs-adb stream                     # scrcpy, borderless, phone screen off
+sudo ~/.config/quickshell/scripts/dns-toggle.sh --on   # encrypted DNS (DoT)
+```
+
+**About the phone:** wireless debugging picks a new random port every time it is
+switched on, and this `adb` build has no mDNS support, so the panel simply asks
+for the port — the phone shows it next to the switch. The command line can also
+search for it (cached address, then a hand-rolled one-shot mDNS query, then a
+threaded port sweep of the LAN, ~0.4s here) if you would rather not type it.
+
+The effect toggles live in `~/.config/quickshell/settings.json` and are applied
+by `config/hypr/config/toggles.lua`, which runs last in `hyprland.lua` — so
+they survive a `hyprctl reload` instead of being silently switched back on.
+
+**Encrypted DNS** points systemd-resolved at Quad9/Cloudflare over TLS, for
+networks where the ISP resolver answers blocked domains with a sentinel IP. It
+needs root, so the panel opens a terminal for the sudo prompt rather than
+failing quietly.
 
 ## Layout
 

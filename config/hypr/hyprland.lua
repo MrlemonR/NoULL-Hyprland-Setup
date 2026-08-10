@@ -12,6 +12,9 @@ require("config.misc")
 require("config.monitors")
 require("config.windowrules")
 require("config.keyring")
+-- Control centre toggles override the values above; runs after them so a
+-- reload does not silently switch the effects back on. (see qs-settings)
+require("config.toggles")
 -- EN SONDA: performans modu açıksa yukarıdaki değerleri eziyor.
 -- Böylece `hyprctl reload` modu iptal etmiyor. (bkz. qs-mode)
 require("config.perfmode")

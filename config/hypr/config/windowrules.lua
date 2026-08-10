@@ -24,9 +24,13 @@ hl.window_rule({ match = { class = "^(org.kde.ark)$" }, size = "(monitor_w*0.40)
 hl.window_rule({ match = { class = "com.saivert.pwvucontrol"}, float = true, size = "743 390", move = "1172 33"})
 hl.window_rule({ match = { class = "com.sidevesh.Luminance"}, float = true, move = "1517 32"})
 hl.window_rule({ match = { class = "FloatBtop"}, float = true, center = true, size = "1337 854"})
+-- Control centre -> Encrypted DNS: a terminal only because the script needs a
+-- sudo prompt. It prints a short report, so it does not need to be large.
+hl.window_rule({ match = { class = "FloatDns"}, float = true, center = true, size = "760 460"})
 hl.window_rule({ match = { class = "nl.hjdskes.gcolor3"}, float = true, center = true, size = "928 535"})
 hl.window_rule({ match = { class = "zen", title = "Oturum açın.*"}, float = true, center = true})
 hl.window_rule({ match = { class = "org.kde.gwenview"}, float = true, center = true, size = "1259 788"})
+hl.window_rule({ match = { class = "^([Bb]lender)$", title = "^(Blender File View)$"}, float = true, center = true, size = "1084 825"})
 hl.window_rule({
     match = {
         class = "^(org.kde.dolphin)$",

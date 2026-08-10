@@ -37,10 +37,13 @@ DESKTOP=(kitty fish fastfetch dunst btop neovim yazi dolphin
 # The shell itself and clipboard persistence — both in the official repos now
 SHELL_PKGS=(quickshell wl-clip-persist)
 
-# Commands the qs-* scripts call directly
+# Commands the qs-* scripts call directly. The last three are the control
+# centre's extras: hyprpicker behind the colour page, cava behind the optional
+# spectrum strips in the bar, android-tools + scrcpy behind the phone page.
 TOOLS=(grim slurp wl-clipboard cliphist imagemagick ffmpeg python zenity
        poppler ddcutil jq rsync socat wireplumber pipewire pipewire-pulse
-       xdg-user-dirs unzip zip libnotify glib2 fontconfig xorg-xhost)
+       xdg-user-dirs unzip zip libnotify glib2 fontconfig xorg-xhost
+       hyprpicker cava android-tools scrcpy)
 
 # Look and feel. breeze-cursors is required: the Hyprland env sets
 # XCURSOR_THEME=breeze_cursors, without it you get the default X cursor.
@@ -161,6 +164,11 @@ say "Scripts into ~/.local/bin"
 cp "$REPO"/bin/* "$HOME/.local/bin/" 2>/dev/null
 chmod +x "$HOME"/.local/bin/qs-* "$HOME"/.local/bin/dunst-* "$HOME"/.local/bin/screenshot 2>/dev/null
 ok "$(ls "$REPO"/bin | wc -l) scripts"
+
+# Shipped inside the quickshell config rather than ~/.local/bin because the
+# control centre calls them by path, not by name (config/quickshell/scripts).
+chmod +x "$HOME"/.config/quickshell/scripts/*.sh 2>/dev/null
+ok "control centre scripts"
 
 case ":$PATH:" in
     *":$HOME/.local/bin:"*) ;;

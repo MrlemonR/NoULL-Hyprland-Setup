@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+#
+# The compositor toggles behind the control centre (the cat menu in the bar).
+#
+#   qs-settings                    print every key and its value
+#   qs-settings get <key>          print one value (on/off)
+#   qs-settings set <key> on|off
+#   qs-settings toggle <key>
+#   qs-settings apply              re-apply everything to the running compositor
+#
+# Source of truth: ~/.config/quickshell/settings.json. The bar watches that file
+# live, so a change made here shows up in the menu without a restart, and a
+# change made in the menu comes back through this script.
+#
+# Applying is deliberately thin: this script writes JSON and hands the work to
+# config/toggles.lua, which is the only place that knows what each key means.
+# Turning something off runs that file; turning it back on is `hyprctl reload`,
+# which restores animations.lua/decorations.lua and then runs toggles.lua again
+# at the end of hyprland.lua for whatever is still off. So the "on" values are
+# never duplicated here and cannot drift from the config.
+#
+# NOTE: `hyprctl keyword` is not an option — it refuses to work with the Lua
+# config parser ("keyword can't work with non-legacy parsers"). Everything goes
+# through `hyprctl eval`, the same way qs-mode drives perfmode.lua.
+
+set -uo pipefail
+
+CONF="$HOME/.config/quickshell/settings.json"
+TOGGLES_LUA="$HOME/.config/hypr/config/toggles.lua"
+
+KEYS=(animations blur shadows transparency gaps)
+
+declare -A LABEL=(
+    [animations]="Animations"
+    [blur]="Blur"
+    [shadows]="Shadows"
+    [transparency]="Window transparency"
+    [gaps]="Window gaps"
+)
+
+die() { echo "qs-settings: $*" >&2; exit 1; }
+
+known() {
+    local key="$1" k
+    for k in "${KEYS[@]}"; do
+        [[ "$k" == "$key" ]] && return 0
+    done
+    return 1
+}
+
+# Everything defaults to on, so a missing or unreadable file means "normal look"
+# rather than a bar full of dead toggles.
+value_of() {
+    local key="$1" raw
+    [[ -r "$CONF" ]] || { echo on; return; }
+    raw=$(jq -r --arg k "$key" '.[$k] // empty' "$CONF" 2>/dev/null)
+    [[ "$raw" == "false" ]] && echo off || echo on
+}
+
+write_value() {
+    local key="$1" value="$2" json
+    mkdir -p "$(dirname "$CONF")"
+    [[ -s "$CONF" ]] || printf '{}' > "$CONF"
+
+    json=$(jq --arg k "$key" --argjson v "$value" '.[$k] = $v' "$CONF" 2>/dev/null) \
+        || die "settings.json is not valid JSON — fix or delete $CONF"
+
+    # Truncate in place instead of writing a temp file and renaming: the bar
+    # watches this path, and a rename swaps the inode out from under the watch.
+    printf '%s\n' "$json" > "$CONF"
+}
+
+# Push every "off" key into the running compositor.
+apply_all() {
+    [[ -r "$TOGGLES_LUA" ]] || return 0
+    hyprctl eval "dofile('$TOGGLES_LUA')" >/dev/null 2>&1
+}
+
+set_value() {
+    local key="$1" want="$2"
+    known "$key" || die "unknown key '$key' (have: ${KEYS[*]})"
+
+    case "$want" in
+        on|true|1)   want=on ;;
+        off|false|0) want=off ;;
+        *) die "value must be on or off, got '$2'" ;;
+    esac
+
+    if [[ "$want" == "on" ]]; then
+        write_value "$key" true
+        # Restores the configured values; toggles.lua runs last in hyprland.lua
+        # and re-applies whatever is still off.
+        hyprctl reload >/dev/null 2>&1
+    else
+        write_value "$key" false
+        apply_all
+    fi
+
+    echo "${LABEL[$key]}: $want"
+}
+
+case "${1:-list}" in
+    list)
+        for key in "${KEYS[@]}"; do
+            printf '%-14s %s\n' "$key" "$(value_of "$key")"
+        done
+        ;;
+    get)
+        [[ $# -ge 2 ]] || die "usage: qs-settings get <key>"
+        known "$2" || die "unknown key '$2' (have: ${KEYS[*]})"
+        value_of "$2"
+        ;;
+    set)
+        [[ $# -ge 3 ]] || die "usage: qs-settings set <key> on|off"
+        set_value "$2" "$3"
+        ;;
+    toggle)
+        [[ $# -ge 2 ]] || die "usage: qs-settings toggle <key>"
+        known "$2" || die "unknown key '$2' (have: ${KEYS[*]})"
+        [[ "$(value_of "$2")" == "on" ]] && set_value "$2" off || set_value "$2" on
+        ;;
+    apply)
+        apply_all
+        ;;
+    -h|--help|help)
+        sed -n '3,/^set -u/p' "$0" | sed 's/^#\{0,1\} \{0,1\}//; $d'
+        ;;
+    *)
+        die "unknown command '$1' — try qs-settings --help"
+        ;;
+esac

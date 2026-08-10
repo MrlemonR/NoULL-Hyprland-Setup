@@ -19,7 +19,9 @@ LauncherProvider {
         { title: "Boot to Windows", subtitle: "Restart into Windows", glyph: "󰖳", cmd: ["sh", "-c", "$HOME/.local/bin/qs-boot-windows"] },
         { title: "Shut Down",     subtitle: "Power off",            glyph: "󰐥", cmd: ["systemctl", "poweroff"] },
         { title: "Performance Mode", subtitle: "Toggle wallpaper/blur/animations off", glyph: "󰓅", cmd: ["sh","-c","$HOME/.local/bin/qs-mode toggle"] },
-        { title: "Reload Shell",  subtitle: "Restart quickshell",   glyph: "󰑓", cmd: ["sh", "-c", "quickshell -c topbar & disown"] },
+        // Handled in activate() — spawning `quickshell -c topbar` left the old
+        // instance running and put a second bar on the screen.
+        { title: "Reload Shell",  subtitle: "Restart quickshell",   glyph: "󰑓", reload: true },
         { title: "Audio Settings", subtitle: "pwvucontrol",         glyph: "󰕾", cmd: ["pwvucontrol"] },
         { title: "System Monitor", subtitle: "btop",                glyph: "󰻠", cmd: ["kitty", "--app-id", "FloatBtop", "-e", "btop"] }
     ]
@@ -39,14 +41,17 @@ LauncherProvider {
                 icon: "",
                 glyph: a.glyph,
                 score: root.actions.length - i,
-                data: a.cmd
+                data: a.cmd,
+                reload: a.reload === true
             })
         }
         return out
     }
 
     activate: function (item) {
-        if (item.data)
+        if (item.reload)
+            Quickshell.reload(true)
+        else if (item.data)
             Quickshell.execDetached(item.data)
         return true
     }

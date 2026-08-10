@@ -1,0 +1,485 @@
+#!/usr/bin/env python3
+"""Phone side of the control centre: find, connect and drive an adb device.
+
+    qs-adb status        JSON for the panel (paired + connected devices)
+    qs-adb connect <port>        connect on the port Wireless debugging shows
+    qs-adb connect <ip:port>     ... or spell the address out in full
+    qs-adb connect               no port: search for the phone (see below)
+    qs-adb disconnect
+    qs-adb stream        scrcpy, small borderless window, phone screen off
+    qs-adb screenshot    grab the phone screen into ~/Pictures/Screenshots
+    qs-adb push <file>   copy a file to the phone's Download folder
+    qs-adb shell         adb shell in a floating terminal
+    qs-adb reboot
+
+Finding the phone is the whole problem. Android's wireless debugging picks a
+random port every time it is switched on and advertises the pair over mDNS, but
+`adb mdns services` is not compiled into the Arch build ("mdns is not supported
+by this version of adb") and avahi-daemon is not running here either.
+
+The control centre therefore asks for the port instead: the phone puts it on
+screen right next to the switch, and `connect <port>` pairs it with the last
+address that worked or the LAN neighbours. Bare `connect` keeps the automatic
+search for command-line use, cheapest first:
+
+    1. already connected            — nothing to do
+    2. the last address that worked — cached, and the common case
+    3. a one-shot mDNS query        — no daemon, no root, just a multicast
+                                      packet and whatever answers in 2s
+    4. a port sweep of the LAN      — ARP neighbours × the port range Android
+                                      hands out, threaded and bounded
+
+Written in Python rather than bash because of 3 and 4; everything else here is
+a thin wrapper over adb.
+"""
+
+import json
+import os
+import re
+import socket
+import struct
+import subprocess
+import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
+
+HOME = os.path.expanduser("~")
+KNOWN_HOSTS = os.path.join(HOME, ".android", "adb_known_hosts.pb")
+CACHE = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.join(HOME, ".cache")), "qs-adb-last")
+SHOTS = os.path.join(HOME, "Pictures", "Screenshots")
+
+MDNS_SERVICE = "_adb-tls-connect._tcp.local"
+
+# Android's wireless debugging binds somewhere in the ephemeral range. Sweeping
+# all of it takes a few seconds; 5555 goes first because `adb tcpip` uses it and
+# it costs one connect to rule out.
+SWEEP_PORTS = [5555] + list(range(30000, 50000))
+SWEEP_TIMEOUT = 0.12
+SWEEP_WORKERS = 400
+
+
+def run(args, timeout=20):
+    try:
+        done = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+        return done.returncode, done.stdout.strip(), done.stderr.strip()
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return 1, "", ""
+
+
+def have(cmd):
+    return any(
+        os.access(os.path.join(d, cmd), os.X_OK)
+        for d in os.environ.get("PATH", "").split(os.pathsep)
+        if d
+    )
+
+
+# ---------------------------------------------------------------- devices
+
+
+def devices():
+    """Connected devices from `adb devices -l`, network ones first."""
+    _, out, _ = run(["adb", "devices", "-l"])
+    found = []
+
+    for line in out.splitlines()[1:]:
+        line = line.strip()
+        if not line:
+            continue
+
+        parts = line.split()
+        address, state = parts[0], parts[1] if len(parts) > 1 else "unknown"
+
+        model = ""
+        for token in parts[2:]:
+            if token.startswith("model:"):
+                model = token.split(":", 1)[1].replace("_", " ")
+
+        found.append({
+            "address": address,
+            "state": state,
+            "model": model,
+            "network": ":" in address,
+        })
+
+    found.sort(key=lambda d: not d["network"])
+    return found
+
+
+def paired():
+    """Devices this machine has paired with, from adb's known-hosts file.
+
+    The file is a protobuf we have no schema for, but every entry contains the
+    mDNS service name (`adb-<serial>-<suffix>`) as a plain string, which is all
+    the panel needs to say "you have a phone paired".
+    """
+    try:
+        with open(KNOWN_HOSTS, "rb") as handle:
+            blob = handle.read()
+    except OSError:
+        return []
+
+    out = []
+    for name in dict.fromkeys(re.findall(rb"adb-[A-Za-z0-9]+-[A-Za-z0-9]+", blob)):
+        name = name.decode()
+        out.append({"name": name, "serial": name.split("-")[1]})
+    return out
+
+
+# ---------------------------------------------------------------- discovery
+
+
+def encode_name(name):
+    out = b""
+    for part in name.split("."):
+        if part:
+            out += bytes([len(part)]) + part.encode()
+    return out + b"\x00"
+
+
+def read_name(data, offset):
+    """Decode a DNS name, following the 0xC0 compression pointers."""
+    labels = []
+    jumped = False
+    end = offset
+
+    while True:
+        if offset >= len(data):
+            break
+        length = data[offset]
+        if length == 0:
+            offset += 1
+            if not jumped:
+                end = offset
+            break
+        if length & 0xC0 == 0xC0:
+            pointer = struct.unpack(">H", data[offset:offset + 2])[0] & 0x3FFF
+            if not jumped:
+                end = offset + 2
+            offset = pointer
+            jumped = True
+            continue
+        labels.append(data[offset + 1:offset + 1 + length].decode(errors="replace"))
+        offset += 1 + length
+
+    return ".".join(labels), end
+
+
+def mdns_lookup(timeout=2.5):
+    """One-shot mDNS query for adb's connect service.
+
+    Returns [(host, port)]. Deliberately does not need avahi: a single PTR
+    question on 224.0.0.251 and whatever comes back within `timeout`.
+    """
+    packet = struct.pack(">HHHHHH", 0, 0, 1, 0, 0, 0)
+    packet += encode_name(MDNS_SERVICE) + struct.pack(">HH", 12, 1)
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
+    sock.bind(("", 0))
+    sock.settimeout(0.4)
+
+    try:
+        sock.sendto(packet, ("224.0.0.251", 5353))
+    except OSError:
+        sock.close()
+        return []
+
+    srv = {}      # service name -> port
+    addr = {}     # hostname    -> ip
+    results = []
+    deadline = time.time() + timeout
+
+    while time.time() < deadline:
+        try:
+            data, source = sock.recvfrom(9000)
+        except socket.timeout:
+            continue
+        except OSError:
+            break
+
+        try:
+            counts = struct.unpack(">HHHHHH", data[:12])
+        except struct.error:
+            continue
+
+        offset = 12
+        for _ in range(counts[2]):
+            _, offset = read_name(data, offset)
+            offset += 4
+
+        total = counts[3] + counts[4] + counts[5]
+        for _ in range(total):
+            name, offset = read_name(data, offset)
+            if offset + 10 > len(data):
+                break
+            rtype, _, _, length = struct.unpack(">HHIH", data[offset:offset + 10])
+            offset += 10
+            body = data[offset:offset + length]
+            offset += length
+
+            if rtype == 33 and len(body) >= 6:              # SRV
+                port = struct.unpack(">H", body[4:6])[0]
+                target, _ = read_name(data, offset - length + 6)
+                srv[name] = (target, port)
+            elif rtype == 1 and len(body) == 4:             # A
+                addr[name] = socket.inet_ntoa(body)
+
+        # The phone's own IP is a fine answer even when the A record is absent
+        for name, (target, port) in srv.items():
+            if MDNS_SERVICE not in name:
+                continue
+            host = addr.get(target) or source[0]
+            if (host, port) not in results:
+                results.append((host, port))
+
+    sock.close()
+    return results
+
+
+def neighbours():
+    """IPv4 hosts the kernel has seen on the LAN, from the ARP cache."""
+    _, out, _ = run(["ip", "-4", "neigh"])
+    hosts = []
+    for line in out.splitlines():
+        parts = line.split()
+        if parts and re.match(r"^\d+\.\d+\.\d+\.\d+$", parts[0]):
+            if "FAILED" not in line and parts[0] not in hosts:
+                hosts.append(parts[0])
+    return hosts
+
+
+def port_open(host, port):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(SWEEP_TIMEOUT)
+        return sock.connect_ex((host, port)) == 0
+
+
+def sweep(host):
+    """Find the first open debugging port on one host."""
+    with ThreadPoolExecutor(max_workers=SWEEP_WORKERS) as pool:
+        for port, is_open in zip(SWEEP_PORTS, pool.map(lambda p: port_open(host, p), SWEEP_PORTS)):
+            if is_open:
+                return port
+    return None
+
+
+def try_connect(address):
+    code, out, err = run(["adb", "connect", address], timeout=25)
+    text = (out + " " + err).lower()
+    if code == 0 and "connected" in text and "cannot" not in text and "failed" not in text:
+        try:
+            os.makedirs(os.path.dirname(CACHE), exist_ok=True)
+            with open(CACHE, "w") as handle:
+                handle.write(address)
+        except OSError:
+            pass
+        return True
+    return False
+
+
+def cached():
+    try:
+        with open(CACHE) as handle:
+            return handle.read().strip()
+    except OSError:
+        return ""
+
+
+def phone_ip():
+    """Best guess at the phone's address, for when only a port was given.
+
+    The last address that worked first, then the LAN neighbours minus the
+    default gateway. Nothing here talks to the phone, so it is instant.
+    """
+    last = cached()
+    if ":" in last:
+        yield last.rsplit(":", 1)[0]
+
+    _, out, _ = run(["ip", "-4", "route", "show", "default"])
+    gateway = out.split()[2] if len(out.split()) > 2 else ""
+
+    for host in neighbours():
+        if host != gateway:
+            yield host
+
+
+def connect_to(argument):
+    """Connect to an explicit `port` or `ip:port`.
+
+    The port is what the phone shows under Wireless debugging, and it changes
+    every time that switch is flipped — which is exactly why typing it beats
+    guessing at it.
+    """
+    if ":" in argument:
+        address = argument
+        print("connecting to %s" % address, flush=True)
+        if try_connect(address):
+            print("connected to %s" % address)
+            return 0
+        print("could not connect to %s" % address)
+        return 1
+
+    if not argument.isdigit():
+        print("expected a port or ip:port, got '%s'" % argument)
+        return 1
+
+    seen = []
+    for host in phone_ip():
+        if host in seen:
+            continue
+        seen.append(host)
+        address = "%s:%s" % (host, argument)
+        print("trying %s" % address, flush=True)
+        if try_connect(address):
+            print("connected to %s" % address)
+            return 0
+
+    if not seen:
+        print("no host to try — give ip:port instead")
+    else:
+        print("port %s did not answer on %s" % (argument, ", ".join(seen)))
+    return 1
+
+
+def connect():
+    if any(d["state"] == "device" for d in devices()):
+        print("already connected")
+        return 0
+
+    last = cached()
+    if last:
+        print("trying last address %s" % last, flush=True)
+        if try_connect(last):
+            print("connected to %s" % last)
+            return 0
+
+    print("looking for the phone over mDNS…", flush=True)
+    for host, port in mdns_lookup():
+        address = "%s:%d" % (host, port)
+        print("found %s" % address, flush=True)
+        if try_connect(address):
+            print("connected to %s" % address)
+            return 0
+
+    print("scanning the network…", flush=True)
+    for host in neighbours():
+        port = sweep(host)
+        if port is None:
+            continue
+        address = "%s:%d" % (host, port)
+        print("found %s" % address, flush=True)
+        if try_connect(address):
+            print("connected to %s" % address)
+            return 0
+
+    print("no phone found — is wireless debugging switched on?")
+    return 1
+
+
+# ---------------------------------------------------------------- actions
+
+
+def target():
+    """The device adb commands should go to, network one preferred."""
+    for device in devices():
+        if device["state"] == "device":
+            return device["address"]
+    return ""
+
+
+def status():
+    connected = [d for d in devices() if d["state"] == "device"]
+    print(json.dumps({
+        "adb": have("adb"),
+        "scrcpy": have("scrcpy"),
+        "connected": connected,
+        "paired": paired(),
+        "last": cached(),
+    }))
+    return 0
+
+
+def main():
+    command = sys.argv[1] if len(sys.argv) > 1 else "status"
+
+    if command == "status":
+        return status()
+
+    if not have("adb"):
+        print("adb is not installed")
+        return 1
+
+    if command == "connect":
+        # `connect <port>` / `connect <ip:port>` is what the panel uses: the
+        # port comes off the phone's Wireless debugging screen. Bare `connect`
+        # keeps the automatic search for command-line use.
+        if len(sys.argv) > 2 and sys.argv[2].strip():
+            return connect_to(sys.argv[2].strip())
+        return connect()
+
+    if command == "disconnect":
+        run(["adb", "disconnect"])
+        print("disconnected")
+        return 0
+
+    device = target()
+    if not device:
+        print("no device connected")
+        return 1
+
+    if command == "stream":
+        if not have("scrcpy"):
+            print("scrcpy is not installed")
+            return 1
+        os.execvp("scrcpy", [
+            "scrcpy", "-s", device,
+            "--window-width", "480", "--window-borderless", "--turn-screen-off",
+        ])
+
+    if command == "screenshot":
+        os.makedirs(SHOTS, exist_ok=True)
+        path = os.path.join(SHOTS, time.strftime("phone-%Y%m%d-%H%M%S.png"))
+        # exec-out returns PNG bytes, so this one bypasses run()'s text mode
+        done = subprocess.run(["adb", "-s", device, "exec-out", "screencap", "-p"],
+                              capture_output=True, timeout=30)
+        if done.returncode != 0 or not done.stdout:
+            print("screenshot failed")
+            return 1
+        with open(path, "wb") as handle:
+            handle.write(done.stdout)
+        run(["notify-send", "-i", "camera-photo", "Phone screenshot", path])
+        print(path)
+        return 0
+
+    if command == "push":
+        source = sys.argv[2] if len(sys.argv) > 2 else ""
+        if not source:
+            # No path given: ask, the same way the note editor picks images
+            _, source, _ = run(["zenity", "--file-selection", "--title=Send to phone"], timeout=300)
+        if not source or not os.path.exists(source):
+            return 1
+        code, out, err = run(["adb", "-s", device, "push", source, "/sdcard/Download/"], timeout=600)
+        message = "Sent to phone" if code == 0 else "Send failed"
+        run(["notify-send", "-i", "phone", message, os.path.basename(source)])
+        print(out or err)
+        return code
+
+    if command == "shell":
+        os.execvp("kitty", ["kitty", "--app-id", "FloatAdb", "-e", "adb", "-s", device, "shell"])
+
+    if command == "reboot":
+        run(["adb", "-s", device, "reboot"])
+        print("rebooting")
+        return 0
+
+    print("unknown command '%s' — see qs-adb --help" % command)
+    return 1
+
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help", "help"):
+        print(__doc__)
+        sys.exit(0)
+    sys.exit(main())
