@@ -30,13 +30,11 @@ return {
         "lua_ls",        -- Lua
         "rust_analyzer", -- Rust
       },
-      automatic_installation = true,
-      handlers = {
-        -- Neovim 0.12 native LSP API: vim.lsp.enable()
-        function(server_name)
-          vim.lsp.enable(server_name)
-        end,
-      },
+      -- mason-lspconfig v2 dropped `handlers` and `automatic_installation`:
+      -- they are merged into the settings table without complaint and then
+      -- ignored. `automatic_enable` is the replacement and does the
+      -- vim.lsp.enable() call the old handler did by hand.
+      automatic_enable = true,
     },
   },
 }

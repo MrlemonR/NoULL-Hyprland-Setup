@@ -40,8 +40,12 @@ Log out and back in when it finishes.
 
 Every colour lives in one file: `config/quickshell/palettes.json`. Adding a
 theme means adding one block there — the bar, GTK 3/4, Qt/Kvantum, KDE apps,
-kitty, dunst, btop, Hyprland window borders, Zen Browser and YouTube Music
-Desktop all read from it.
+kitty, dunst, btop, Hyprland window borders, Zen Browser, YouTube Music Desktop
+**and Neovim** all read from it.
+
+Neovim gets the same treatment rather than a colorscheme plugin per theme: one
+generated colorscheme renders whichever theme is active, and it watches the
+palette files, so `Super+Ctrl+Z` restyles editors that are already open.
 
 ```bash
 qs-theme nord          # apply a theme

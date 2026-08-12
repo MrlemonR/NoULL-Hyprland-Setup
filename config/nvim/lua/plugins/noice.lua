@@ -11,7 +11,8 @@ return {
   opts = {
     lsp = {
       override = {
-        ["vim.lsp.util.convert_to_markdown_table"] = true,
+        -- vim.lsp.util.convert_to_markdown_table was removed in Neovim 0.11;
+        -- overriding a function that no longer exists is a no-op at best.
         ["vim.lsp.util.stylize_markdown"] = true,
         ["cmp.entry.get_documentation"] = true,
       },

@@ -26,7 +26,7 @@
     "gtkThemeName": "catppuccin-mocha-mauve-standard+default",
     "gtkAccentName": "purple",
     "kvantumTheme": "catppuccin-mocha-mauve",
-    "nvimScheme": "catppuccin-mocha"
+    "nvimScheme": "lemon"
   },
   "monochrome": {
     "label": "Monochrome",
@@ -55,7 +55,7 @@
     "gtkThemeName": "Adwaita-dark",
     "gtkAccentName": "slate",
     "kvantumTheme": "",
-    "nvimScheme": "monochrome"
+    "nvimScheme": "lemon"
   },
   "gruvbox": {
     "label": "Gruvbox Dark",
@@ -84,7 +84,7 @@
     "gtkThemeName": "Adwaita-dark",
     "gtkAccentName": "orange",
     "kvantumTheme": "",
-    "nvimScheme": "gruvbox"
+    "nvimScheme": "lemon"
   },
   "nord": {
     "label": "Nord",
@@ -113,7 +113,7 @@
     "gtkThemeName": "Adwaita-dark",
     "gtkAccentName": "blue",
     "kvantumTheme": "",
-    "nvimScheme": "nord"
+    "nvimScheme": "lemon"
   },
   "everforest": {
     "label": "Everforest Dark",
@@ -142,6 +142,6 @@
     "gtkThemeName": "Adwaita-dark",
     "gtkAccentName": "green",
     "kvantumTheme": "",
-    "nvimScheme": "everforest"
+    "nvimScheme": "lemon"
   }
 }

@@ -79,8 +79,14 @@ return {
           bufmap("n", "K", vim.lsp.buf.hover, "Hover Documentation")
           bufmap("n", "<leader>ds", vim.lsp.buf.document_symbol, "Document Symbols")
           bufmap("n", "<leader>ws", vim.lsp.buf.workspace_symbol, "Workspace Symbols")
-          bufmap("n", "[d", vim.diagnostic.goto_prev, "Previous Diagnostic")
-          bufmap("n", "]d", vim.diagnostic.goto_next, "Next Diagnostic")
+          -- goto_prev/goto_next are deprecated since 0.11 and print a warning
+          -- on every jump; vim.diagnostic.jump replaces both.
+          bufmap("n", "[d", function()
+            vim.diagnostic.jump({ count = -1, float = true })
+          end, "Previous Diagnostic")
+          bufmap("n", "]d", function()
+            vim.diagnostic.jump({ count = 1, float = true })
+          end, "Next Diagnostic")
 
           -- İmza yardımı (sadece destekleyen sunucularda)
           if client.server_capabilities.signatureHelpProvider then

@@ -64,7 +64,9 @@ copy_dir "$CFG/kitty" "$DEST/config/kitty" \
 copy_dir "$CFG/fish"      "$DEST/config/fish"
 copy_dir "$CFG/fastfetch" "$DEST/config/fastfetch"
 copy_dir "$CFG/dunst"     "$DEST/config/dunst"
-copy_dir "$CFG/nvim"      "$DEST/config/nvim"
+# nvim — lazy-lock.json ŞART (eklenti sürümlerini sabitliyor). nvim.log stray
+# bir artık, config değil.
+copy_dir "$CFG/nvim"      "$DEST/config/nvim" --exclude='nvim.log'
 copy_dir "$CFG/qt6ct"     "$DEST/config/qt6ct"
 
 # Dolphin ve KDE tarafı. kdeglobals BİLEREK yok: onu qs-theme-kde üretiyor,

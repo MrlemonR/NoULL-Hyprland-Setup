@@ -30,6 +30,22 @@ local colors = {
 M.colors = colors
 
 M.setup = function()
+  -- Standard colorscheme preamble. Without it the previous scheme's groups
+  -- survive underneath, and `g:colors_name` stays unset — which is what
+  -- lualine's `theme = "auto"` and several plugins read to pick their colors.
+  vim.cmd("highlight clear")
+  if vim.fn.exists("syntax_on") == 1 then
+    vim.cmd("syntax reset")
+  end
+  vim.o.termguicolors = true
+  -- Name cleared first: changing 'background' re-sources g:colors_name, and
+  -- this file is already running.
+  if vim.o.background ~= "dark" then
+    vim.g.colors_name = nil
+    vim.o.background = "dark"
+  end
+  vim.g.colors_name = "ayu-red"
+
   -- Temel UI
   vim.api.nvim_set_hl(0, "Normal",       { fg = colors.fg, bg = colors.bg })
   vim.api.nvim_set_hl(0, "NormalFloat",  { fg = colors.fg, bg = colors.bg_light })

@@ -12,7 +12,8 @@
 #   kitty      : ~/.config/kitty/current-theme.conf + SIGUSR1 ile yeniden yükleme
 #   gtk 3/4    : settings.ini + gsettings ile tema adı (tema kuruluysa)
 #   qt/kde     : ~/.config/Kvantum/kvantum.kvconfig (tema kuruluysa)
-#   nvim       : ~/.config/nvim/lua/qs-theme.lua    (theme-sync eklentisi okur)
+#   nvim       : colors/lemon.lua palettes.json + theme.txt'i kendi okuyor;
+#                buraya sadece yedek olarak lua/qs-theme.lua yazılıyor
 #   hyprland   : ~/.config/hypr/config/theme.lua    (pencere kenarlık renkleri,
 #                hyprctl ile canlı olarak da uygulanıyor)
 
@@ -158,8 +159,10 @@ done
 # ============================================================
 # 8. nvim
 #
-# ~/.config/nvim/lua yazılabilirse tema adını oraya da bırakıyoruz;
-# qs-theme-sync.lua zaten ~/.config/quickshell/theme.txt dosyasını okuyor.
+# Nothing has to be pushed here: colors/lemon.lua reads palettes.json and
+# theme.txt directly and watches both, so running editors restyle themselves.
+# The file below is only a backstop for the case where theme.txt cannot be
+# read, and a record of what the last switch was.
 # ============================================================
 
 NVIM_STATE="$HOME/.config/nvim/lua/qs-theme.lua"

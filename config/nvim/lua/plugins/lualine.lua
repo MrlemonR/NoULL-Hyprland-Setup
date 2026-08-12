@@ -7,7 +7,10 @@ return {
   dependencies = { "nvim-tree/nvim-web-devicons" },
   opts = {
     options = {
-      theme = "auto",
+      -- lua/lualine/themes/lemon.lua, built from the active system palette.
+      -- "auto" guesses from the highlight groups and lands on the wrong
+      -- accent for half the themes.
+      theme = "lemon",
       globalstatus = true,
       component_separators = { left = "", right = "" },
       section_separators = { left = "", right = "" },
