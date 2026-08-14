@@ -1,5 +1,5 @@
 -- qs-theme tarafından üretildi — elle düzenlemeyin
 return {
-  theme = "everforest",
+  theme = "frutiger-aero",
   colorscheme = "lemon",
 }

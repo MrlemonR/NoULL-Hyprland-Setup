@@ -47,17 +47,17 @@ NEUTRAL_THEME = "Adwaita-dark"
 START = "/* >>> qs-theme */"
 END = "/* <<< qs-theme */"
 
-PALETTES_FILE = os.path.expanduser("~/.config/quickshell/palettes.json")
+PALETTES_FILE = os.path.expanduser("~/.config/quickshell/lemonrice.json")
 
 
 def load_palette(theme):
-    """Renkler tek kaynaktan: ~/.config/quickshell/palettes.json (qs-palette).
+    """Renkler tek kaynaktan: ~/.config/quickshell/lemonrice.json (qs-config).
 
     Yeni tema eklerken burayı değil o dosyayı düzenlemek yeterli.
     """
     try:
         with open(PALETTES_FILE, encoding="utf-8") as handle:
-            raw = json.load(handle).get(theme)
+            raw = json.load(handle)["palettes"].get(theme)
     except (OSError, ValueError):
         return None
     if raw is None:
@@ -243,7 +243,22 @@ def write_css(path, palette, with_variables):
         handle.write(content)
 
 
-def set_theme_name(name):
+def set_theme_name(name, light=False):
+    """GTK tema adı + SİSTEM GENELİ AÇIK/KOYU TERCİHİ.
+
+    İkincisi burada duruyor çünkü tek yazan yer burası, ama etkisi GTK ile
+    sınırlı değil: `color-scheme` ve `gtk-application-prefer-dark-theme`,
+    xdg-desktop-portal üzerinden BÜTÜN masaüstüne "koyu mu açık mı" cevabını
+    veriyor. Qt/KDE uygulamaları (Dolphin'in KColorScheme'i), Firefox/Zen'in
+    chrome'u ve Electron'un `prefers-color-scheme` sorgusu hep buraya bakıyor.
+
+    Değer `prefer-dark` olarak SABİT yazılmıştı. Beş temanın beşi de koyu
+    olduğu sürece doğruydu; ilk açık tema gelince palet açık, sistem cevabı
+    koyu oldu ve uygulamalar kendi koyu şemalarını çizmeye devam etti — açık
+    zemin üstünde beyaz yazı. kdeglobals, Kvantum ve qt6ct paletlerinin
+    üçünün de doğru olup Dolphin'in yine okunmaması bundandı.
+    """
+    prefer = "0" if light else "1"
     for path in (SETTINGS3, SETTINGS4):
         if not os.path.isfile(path):
             continue
@@ -251,11 +266,15 @@ def set_theme_name(name):
             content = handle.read()
         updated = re.sub(r"^gtk-theme-name=.*$", f"gtk-theme-name={name}",
                          content, flags=re.M)
+        updated = re.sub(r"^gtk-application-prefer-dark-theme=.*$",
+                         f"gtk-application-prefer-dark-theme={prefer}",
+                         updated, flags=re.M)
         if updated != content:
             with open(path, "w", encoding="utf-8") as handle:
                 handle.write(updated)
 
-    for args in (["gtk-theme", name], ["color-scheme", "prefer-dark"]):
+    scheme = "prefer-light" if light else "prefer-dark"
+    for args in (["gtk-theme", name], ["color-scheme", scheme]):
         subprocess.run(["gsettings", "set", "org.gnome.desktop.interface"] + args,
                        check=False, stdout=subprocess.DEVNULL,
                        stderr=subprocess.DEVNULL)
@@ -296,8 +315,13 @@ def main():
         print(f"gtk: '{theme}' için eşleme yok, atlandı")
         return
 
-    palette = load_palette(theme)
-    set_theme_name(palette["theme_name"])
+    # Açık/koyu kararı paletin kendisinden: base'in parlaklığı.
+    base = palette.get("base") or palette.get("bg") or "#000000"
+    v = base.lstrip("#")
+    r, g, b = (int(v[i:i + 2], 16) for i in (0, 2, 4))
+    is_light = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 > 0.5
+
+    set_theme_name(palette["theme_name"], light=is_light)
     set_accent(palette["accent_name"])
     write_css(GTK3, palette, with_variables=False)
     write_css(GTK4, palette, with_variables=True)

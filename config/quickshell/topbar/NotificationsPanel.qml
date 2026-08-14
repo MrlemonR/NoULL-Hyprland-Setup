@@ -94,10 +94,18 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        radius: 0
-        color: Theme.base
+        radius: Theme.radiusPanel
+
+        // Aero sheen. Inert on the standard themes — Theme.gloss is 0 — and
+        // declared first so it sits under the content rather than over it.
+        GlossOverlay {
+            anchors.fill: parent
+            radius: parent.radius
+            midline: 0.3
+        }
+        color: Theme.panelColor
         border.color: Theme.surface0
-        border.width: 1
+        border.width: Theme.borderWidth
 
         // ---------------- Başlık ----------------
         // İki sayfanın başlığı aynı şeridi paylaşıyor, birbirine soluyor.
@@ -168,15 +176,15 @@ Item {
                         anchors.verticalCenter: parent.verticalCenter
                         width: 36
                         height: 18
-                        radius: 0
+                        radius: Theme.radius > 0 ? height / 2 : 0
                         color: NotificationService.dnd ? Theme.mauve : Theme.surface1
-                        border.width: 1
+                        border.width: Theme.borderWidth
                         border.color: NotificationService.dnd ? Theme.mauve : Theme.surface2
 
                         Rectangle {
                             width: 12
                             height: 12
-                            radius: 0
+                            radius: Theme.radius > 0 ? height / 2 : 0
                             y: 3
                             x: NotificationService.dnd ? dndTrack.width - width - 3 : 3
                             color: NotificationService.dnd ? Theme.base : Theme.text
@@ -219,8 +227,15 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     width: backRow.implicitWidth + 18
                     height: 26
-                    radius: 0
-                    color: backArea.containsMouse ? Theme.surface0 : "transparent"
+                    radius: Theme.radius
+                    color: "transparent"
+                    
+                    ButtonSurface {
+                        anchors.fill: parent
+                        radius: parent.radius
+                        hovered: backArea.containsMouse
+                        restingColor: "transparent"
+                    }
 
                     Row {
                         id: backRow
@@ -262,8 +277,15 @@ Item {
                     Rectangle {
                         width: copyText.implicitWidth + 16
                         height: 22
-                        radius: 0
-                        color: copyArea.containsMouse ? Theme.surface0 : "transparent"
+                        radius: Theme.radius
+                        color: "transparent"
+                        
+                        ButtonSurface {
+                            anchors.fill: parent
+                            radius: parent.radius
+                            hovered: copyArea.containsMouse
+                            restingColor: "transparent"
+                        }
 
                         Text {
                             id: copyText
@@ -287,8 +309,15 @@ Item {
                     Rectangle {
                         width: dismissText.implicitWidth + 16
                         height: 22
-                        radius: 0
-                        color: dismissArea.containsMouse ? Theme.surface0 : "transparent"
+                        radius: Theme.radius
+                        color: "transparent"
+                        
+                        ButtonSurface {
+                            anchors.fill: parent
+                            radius: parent.radius
+                            hovered: dismissArea.containsMouse
+                            restingColor: "transparent"
+                        }
 
                         Text {
                             id: dismissText
@@ -366,7 +395,7 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     width: clearText.implicitWidth + 14
                     height: 20
-                    radius: 0
+                    radius: Theme.radius
                     color: clearArea.containsMouse ? Theme.surface0 : "transparent"
                     visible: NotificationService.notifications.length > 0
 
@@ -521,7 +550,7 @@ Item {
                                     anchors.verticalCenter: summaryText.verticalCenter
                                     width: 6
                                     height: 6
-                                    radius: 0
+                                    radius: Theme.radiusUpTo(6)
                                     color: Theme.mauve
                                     visible: item.unread && !itemArea.containsMouse
                                 }
@@ -535,7 +564,7 @@ Item {
                                     anchors.verticalCenter: summaryText.verticalCenter
                                     width: 16
                                     height: 16
-                                    radius: 0
+                                    radius: Theme.radius
                                     color: closeArea.containsMouse ? Theme.red : "transparent"
                                     visible: itemArea.containsMouse
 
@@ -597,7 +626,7 @@ Item {
                 Rectangle {
                     anchors.right: parent.right
                     width: 3
-                    radius: 0
+                    radius: Theme.radiusUpTo(3)
                     color: Theme.surface1
                     visible: list.contentHeight > list.height
                     height: list.height * (list.height / Math.max(1, list.contentHeight))
@@ -774,7 +803,7 @@ Item {
                 anchors.right: parent.right
                 anchors.rightMargin: 3
                 width: 3
-                radius: 0
+                radius: Theme.radiusUpTo(3)
                 color: Theme.surface1
                 visible: detailFlick.contentHeight > detailFlick.height
                 height: detailFlick.height * (detailFlick.height / Math.max(1, detailFlick.contentHeight))

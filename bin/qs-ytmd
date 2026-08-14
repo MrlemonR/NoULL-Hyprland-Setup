@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+#
+# YouTube Music Desktop'u başlık çubuğu doğru renkteyken açar.
+#
+# Neden sarmalayıcı: başlık çubuğu uygulamanın kendi penceresi, web görünümü
+# değil — rengi /opt/ytmdesktop/resources/app.asar içinde sabit. Yamalayan
+# script root istiyor ve YAMA UYGULAMA BAŞLAMADAN BİTMEK ZORUNDA: Electron
+# paketi açılışta okuyor, sonradan yamalamak ancak bir sonraki açılışta
+# görünürdü. Bu yüzden burada önce yama, sonra exec.
+#
+# --if-stale hızlı çıkıyor: paket zaten etkin temaya göre yamalıysa (ve
+# uygulama güncellenmemişse) hiçbir şey yapmıyor, yani her açılışta paket
+# yeniden kurulmuyor.
+#
+# Parolasız çalışması için bir kez:  sudo qs-ytmd-titlebar --install
+# Kurulu değilse `sudo -n` sessizce başarısız oluyor ve uygulama yine de
+# açılıyor — temanın eksik kalması uygulamanın açılmamasından iyidir.
+
+set -u
+
+HELPER="/usr/local/bin/qs-ytmd-titlebar"
+APP="youtube-music-desktop-app"
+
+if [[ -x "$HELPER" ]]; then
+    sudo -n "$HELPER" --if-stale >/dev/null 2>&1 || true
+fi
+
+exec "$APP" "$@"

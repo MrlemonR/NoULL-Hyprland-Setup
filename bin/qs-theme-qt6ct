@@ -1,0 +1,218 @@
+#!/usr/bin/env python3
+"""Qt uygulamalarının renk paleti (qt6ct).
+
+Kvantum sadece WIDGET STİLİNİ veriyor (gotcha #14). Metin alanı, liste zemini,
+seçim rengi gibi şeyler Qt'nin kendi QPalette'inden geliyor ve onu qt6ct
+belirliyor — QT_QPA_PLATFORMTHEME=qt6ct olduğu için.
+
+Bu dosya yazılmadan önce qt6ct.conf'ta color_scheme_path SABİT olarak
+catppuccin-mocha-mauve.conf'u gösteriyordu ve hiçbir tema scripti ona
+dokunmuyordu. Yani tema ne olursa olsun bütün Qt uygulamaları catppuccin'in
+KOYU paletini alıyordu. Beş temanın beşi de koyu ve catppuccin'e yakın olduğu
+için bu yıllarca görünmedi; ilk açık tema (frutiger-aero) gelince FeatherPad'in
+metin alanı koyu kaldı ve ortaya çıktı.
+
+Kullanım: qs-theme-qt6ct <tema>
+"""
+
+import json
+import os
+import re
+import sys
+
+CONF = os.path.expanduser("~/.config/qt6ct/qt6ct.conf")
+COLORS_DIR = os.path.expanduser("~/.config/qt6ct/colors")
+QSS_DIR = os.path.expanduser("~/.config/qt6ct/qss")
+PALETTES = os.path.expanduser("~/.config/quickshell/lemonrice.json")
+PREFIX = "qs-"
+
+
+def luminance(hex_color):
+    value = hex_color.lstrip("#")
+    r, g, b = (int(value[i:i + 2], 16) for i in (0, 2, 4))
+    return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+
+
+def text_on(background, palette):
+    """Vurgu renginin ÜSTÜNE yazılacak metin rengi.
+
+    Şablon burada da `crust` kullanıyordu ve o yalnızca koyu palette en koyu
+    renk olduğu için çalışıyordu. Açık palette crust açık renklerden biri, yani
+    seçili satırın yazısı açık-üstüne-açık kalıyor. Paletin iki ucundan hangisi
+    zeminden daha uzaksa onu seçiyoruz — Theme.qml'deki textOn ile aynı mantık.
+    """
+    target = luminance(background)
+    crust, text = palette["crust"], palette["text"]
+    return crust if abs(luminance(crust) - target) >= abs(luminance(text) - target) else text
+
+
+def argb(hex_color, alpha="ff"):
+    return "#" + alpha + hex_color.lstrip("#").lower()
+
+
+def scheme(palette):
+    """qt6ct'nin 22 sütunu = QPalette::ColorRole sırası."""
+    p = palette
+    on_highlight = text_on(p["mauve"], p)
+
+    def row(window_text, button, base, window, button_text, highlight, disabled=False):
+        return [
+            argb(window_text),                    # 0  WindowText
+            argb(button),                         # 1  Button
+            argb(p["surface2"]),                  # 2  Light
+            argb(p["surface0"]),                  # 3  Midlight
+            argb(p["crust"]),                     # 4  Dark
+            argb(p["mantle"]),                    # 5  Mid
+            argb(window_text),                    # 6  Text
+            argb(p["text"]),                      # 7  BrightText
+            argb(button_text),                    # 8  ButtonText
+            argb(base),                           # 9  Base
+            argb(window),                         # 10 Window
+            argb(p["crust"]),                     # 11 Shadow
+            argb(highlight),                      # 12 Highlight
+            argb(on_highlight if not disabled else p["overlay0"]),  # 13 HighlightedText
+            argb(p["blue"]),                      # 14 Link
+            argb(p["mauve"]),                     # 15 LinkVisited
+            argb(p["mantle"]),                    # 16 AlternateBase
+            argb("#ffffff"),                      # 17 NoRole
+            argb(p["base"]),                      # 18 ToolTipBase
+            argb(p["text"]),                      # 19 ToolTipText
+            argb(p["overlay0"], "80"),            # 20 PlaceholderText
+            argb(p["mauve"]),                     # 21 Accent
+        ]
+
+    return {
+        "active_colors": row(p["text"], p["surface1"], p["base"], p["mantle"],
+                             p["text"], p["mauve"]),
+        # Odaksız pencere: metin biraz soluk, seçim vurgusu nötr.
+        "inactive_colors": row(p["subtext0"], p["surface1"], p["base"], p["mantle"],
+                               p["subtext0"], p["surface0"]),
+        "disabled_colors": row(p["overlay0"], p["surface0"], p["mantle"], p["mantle"],
+                               p["overlay0"], p["surface0"], disabled=True),
+    }
+
+
+def write_scheme(theme, palette):
+    os.makedirs(COLORS_DIR, exist_ok=True)
+    path = os.path.join(COLORS_DIR, f"{PREFIX}{theme}.conf")
+    rows = scheme(palette)
+    with open(path, "w", encoding="utf-8") as handle:
+        # DİKKAT: yorum satırı YOK. Bu dosyayı Qt'nin QSettings INI
+        # ayrıştırıcısı okuyor ve o `#` ile başlayan satırı yorum saymıyor —
+        # [ColorScheme] bölümünden ÖNCE gelen böyle bir satır dosyayı
+        # kullanılamaz hâle getiriyor, qt6ct sessizce paleti uygulamıyor ve
+        # uygulamalar eski/varsayılan renklerde kalıyor. Stok catppuccin
+        # dosyalarında da hiç yorum yok, sebebi bu.
+        handle.write("[ColorScheme]\n")
+        for key in ("active_colors", "inactive_colors", "disabled_colors"):
+            handle.write(f"{key}={', '.join(rows[key])}\n")
+    return path
+
+
+def write_stylesheet(theme, palette):
+    """Son çare: metin rengini doğrudan dayatan uygulama geneli stylesheet.
+
+    NEDEN GEREKLİ — Dolphin'in kenar çubuğu ve simge görünümü, paletin üç
+    kaynağı da doğru olmasına rağmen beyaz kalıyordu. Tek tek elendi:
+      * qt6ct QPalette      -> PySide6 ile ölçüldü, Text=#10333f (doğru)
+      * kdeglobals          -> ForegroundNormal geçici olarak KIRMIZI yapıldı,
+                               Dolphin hiç etkilenmedi (kaynak değil)
+      * Kvantum kvconfig    -> text renkleri koyu, zemini o boyuyor (yani tema
+                               yükleniyor) ama metin rengi ondan gelmiyor
+      * xdg portal / gsettings prefer-light -> düzeltildi, yine değişmedi
+    Nereden geldiği bulunamadı; stylesheet bunların hepsinin üstünde olduğu
+    için sonucu garantiliyor. Yalnızca AÇIK paletlerde yazılıyor — koyu
+    temalarda ortada bir sorun yok ve gereksiz bir dayatma istemiyoruz.
+    """
+    if luminance(palette["base"]) <= 0.5:
+        # Koyu tema: dosyayı temizle ki eski bir dayatma asılı kalmasın.
+        return None
+
+    os.makedirs(QSS_DIR, exist_ok=True)
+    path = os.path.join(QSS_DIR, f"{PREFIX}{theme}.qss")
+    text = palette["text"]
+    on_sel = text_on(palette["mauve"], palette)
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(
+            "/* qs-theme-qt6ct — elle düzenlemeyin */\n"
+            "QAbstractItemView, QListView, QTreeView, QTableView,\n"
+            "QLabel, QGroupBox, QCheckBox, QRadioButton {\n"
+            f"    color: {text};\n"
+            "}\n"
+            "QAbstractItemView::item:selected,\n"
+            "QAbstractItemView::item:selected:active {\n"
+            f"    color: {on_sel};\n"
+            "}\n"
+        )
+    return path
+
+
+def patch_conf(scheme_path, icon_theme, qss_path=None):
+    """qt6ct.conf'u YERİNDE düzenle: dosyanın geri kalanı (font, stil, arayüz
+    ayarları) qs-font ve kullanıcı tarafından yönetiliyor, baştan yazamayız."""
+    if not os.path.isfile(CONF):
+        print("qt6ct: qt6ct.conf yok, atlandı")
+        return False
+
+    with open(CONF, encoding="utf-8") as handle:
+        content = handle.read()
+
+    content, n1 = re.subn(r"(?m)^color_scheme_path=.*$",
+                          "color_scheme_path=" + scheme_path, content)
+    if n1 == 0:
+        content = content.replace("[Appearance]",
+                                  "[Appearance]\ncolor_scheme_path=" + scheme_path, 1)
+    content, _ = re.subn(r"(?m)^custom_palette=.*$", "custom_palette=true", content)
+    content, n2 = re.subn(r"(?m)^icon_theme=.*$", "icon_theme=" + icon_theme, content)
+    if n2 == 0:
+        content = content.replace("[Appearance]",
+                                  "[Appearance]\nicon_theme=" + icon_theme, 1)
+
+    value = qss_path if qss_path else "@Invalid()"
+    content, n3 = re.subn(r"(?m)^stylesheets=.*$", "stylesheets=" + value, content)
+    if n3 == 0:
+        content = content.replace("[Appearance]",
+                                  "[Appearance]\nstylesheets=" + value, 1)
+
+    with open(CONF, "w", encoding="utf-8") as handle:
+        handle.write(content)
+    return True
+
+
+def pick_icon_theme(is_light):
+    """Koyu ikon teması açık zeminde açık renkli tek renk ikonlar demek —
+    Dolphin'in kenar çubuğu okunmaz hale geliyordu."""
+    wanted = ["Papirus-Light", "breeze", "Adwaita"] if is_light else ["Papirus-Dark", "breeze-dark"]
+    roots = ["/usr/share/icons", os.path.expanduser("~/.local/share/icons")]
+    for name in wanted:
+        for root in roots:
+            if os.path.isdir(os.path.join(root, name)):
+                return name
+    return wanted[-1]
+
+
+def main():
+    if len(sys.argv) < 2:
+        sys.exit("kullanım: qs-theme-qt6ct <tema>")
+    theme = sys.argv[1]
+
+    try:
+        with open(PALETTES, encoding="utf-8") as handle:
+            palette = json.load(handle)["palettes"].get(theme)
+    except (OSError, ValueError):
+        palette = None
+
+    if palette is None:
+        print(f"qt6ct: '{theme}' için palet yok, atlandı")
+        return
+
+    path = write_scheme(theme, palette)
+    icons = pick_icon_theme(luminance(palette["base"]) > 0.5)
+    qss = write_stylesheet(theme, palette)
+    if patch_conf(path, icons, qss):
+        extra = f" + {os.path.basename(qss)}" if qss else ""
+        print(f"qt6ct: {os.path.basename(path)} + ikonlar {icons}{extra}")
+
+
+if __name__ == "__main__":
+    main()

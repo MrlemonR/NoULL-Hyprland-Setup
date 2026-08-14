@@ -168,8 +168,15 @@ RowLayout {
     Rectangle {
         id: mediaRect
         visible: BarSettings.enabled("media") && root.activePlayer !== null
-        color: mediaArea.containsMouse ? Theme.surface0 : "transparent"
-        radius: 0
+        color: "transparent"
+        radius: Theme.radius
+
+        ButtonSurface {
+            anchors.fill: parent
+            radius: parent.radius
+            hovered: mediaArea.containsMouse
+            restingColor: "transparent"
+        }
         implicitWidth: mediaRow.implicitWidth + 10
         implicitHeight: 22
 
@@ -270,8 +277,15 @@ RowLayout {
     Rectangle {
         id: statsRect
         visible: BarSettings.enabled("stats")
-        color: sysArea.containsMouse ? Theme.surface0 : "transparent"
-        radius: 0
+        color: "transparent"
+        radius: Theme.radius
+
+        ButtonSurface {
+            anchors.fill: parent
+            radius: parent.radius
+            hovered: sysArea.containsMouse
+            restingColor: "transparent"
+        }
         implicitWidth: sysRow.implicitWidth + 10
         implicitHeight: 22
 
@@ -318,8 +332,15 @@ RowLayout {
     Rectangle {
         id: volumeRect
         visible: BarSettings.enabled("volume")
-        color: volumeArea.containsMouse ? Theme.surface0 : "transparent"
-        radius: 0
+        color: "transparent"
+        radius: Theme.radius
+
+        ButtonSurface {
+            anchors.fill: parent
+            radius: parent.radius
+            hovered: volumeArea.containsMouse
+            restingColor: "transparent"
+        }
         implicitWidth: volumeRow.implicitWidth + 8
         implicitHeight: 22
 
@@ -401,8 +422,15 @@ SystemTrayPopup {
 
         visible: BarSettings.enabled("notifications")
 
-        color: notifArea.containsMouse ? Theme.surface0 : "transparent"
-        radius: 0
+        color: "transparent"
+        radius: Theme.radius
+
+        ButtonSurface {
+            anchors.fill: parent
+            radius: parent.radius
+            hovered: notifArea.containsMouse
+            restingColor: "transparent"
+        }
         implicitWidth: 26
         implicitHeight: 22
 
@@ -428,7 +456,7 @@ SystemTrayPopup {
             anchors.topMargin: 0
             width: Math.max(10, badgeText.implicitWidth + 4)
             height: 10
-            radius: 0
+            radius: Theme.radiusUpTo(10)
             color: Theme.red
 
             Text {
@@ -436,7 +464,7 @@ SystemTrayPopup {
 
                 anchors.centerIn: parent
                 text: NotificationService.badgeText
-                color: Theme.base
+                color: Theme.textOn(Theme.red)
                 font.pixelSize: 8
                 font.bold: true
             }

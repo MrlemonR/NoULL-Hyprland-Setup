@@ -15,7 +15,60 @@ import sys
 
 KDEGLOBALS = os.path.expanduser("~/.config/kdeglobals")
 
-PALETTES_FILE = os.path.expanduser("~/.config/quickshell/palettes.json")
+PALETTES_FILE = os.path.expanduser("~/.config/quickshell/lemonrice.json")
+
+
+def relative_luminance(value):
+    """WCAG'in gamma düzeltmeli parlaklığı.
+
+    Ham (0.2126R+0.7152G+0.0722B)/255 ile karıştırılmamalı: o, okunurluk için
+    yanıltıyor. #7fb0c9 açık zeminde ham farkı 0.29 verip eşiği geçiyordu ama
+    gerçek kontrastı 2.1:1, yani okunmuyordu — Dolphin'in kenar çubuğu tam
+    olarak bu yüzden iki denemede düzelmedi.
+    """
+    v = value.lstrip("#")[:6]
+    out = []
+    for i in (0, 2, 4):
+        c = int(v[i:i + 2], 16) / 255
+        out.append(c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4)
+    return 0.2126 * out[0] + 0.7152 * out[1] + 0.0722 * out[2]
+
+
+def contrast(a, b):
+    """WCAG kontrast oranı, 1:1 ile 21:1 arası."""
+    la, lb = relative_luminance(a), relative_luminance(b)
+    if la < lb:
+        la, lb = lb, la
+    return (la + 0.05) / (lb + 0.05)
+
+def luminance(value):
+    v = value.lstrip("#")
+    r, g, b = (int(v[i:i + 2], 16) for i in (0, 2, 4))
+    return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+
+
+def text_on(background, raw):
+    """Vurgu renginin ÜSTÜNE yazılacak renk.
+
+    Burada da `crust` sabitlenmişti ve yalnızca koyu palette en koyu renk
+    olduğu için çalışıyordu — açık palette Dolphin'in seçili satırı
+    açık-üstüne-açık kalıyordu. Paletin iki ucundan zeminden uzak olanı.
+    """
+    target = luminance(background)
+    crust, text = raw["crust"], raw["text"]
+    return crust if abs(luminance(crust) - target) >= abs(luminance(text) - target) else text
+
+
+def readable_dim(raw):
+    """ForegroundInactive: soluk ama HÂLÂ okunur.
+
+    overlay0 koyu zeminde doğru soluk ton; açık zeminde kontrastı ~3:1'e
+    düşüyor ve Dolphin'in kenar çubuğu okunmaz hale geliyor. Kontrast yetmezse
+    bir tık koyusuna geçiyoruz.
+    """
+    if contrast(raw["overlay0"], raw["base"]) >= 3.0:
+        return raw["overlay0"]
+    return raw["subtext0"]
 
 
 def rgb(value):
@@ -25,10 +78,10 @@ def rgb(value):
 
 
 def load_palette(theme):
-    """Renkler tek kaynaktan: ~/.config/quickshell/palettes.json (qs-palette)."""
+    """Renkler tek kaynaktan: ~/.config/quickshell/lemonrice.json (qs-config)."""
     try:
         with open(PALETTES_FILE, encoding="utf-8") as handle:
-            raw = json.load(handle).get(theme)
+            raw = json.load(handle)["palettes"].get(theme)
     except (OSError, ValueError):
         return None
     if raw is None:
@@ -38,7 +91,7 @@ def load_palette(theme):
             "bg": rgb(raw["base"]), "view": rgb(raw["mantle"]),
             "text": rgb(raw["text"]), "window_text": rgb(raw["text"]),
             "button": rgb(raw["surface0"]), "accent": rgb(raw["mauve"]),
-            "accent_text": rgb(raw["crust"]), "inactive": rgb(raw["overlay0"]),
+            "accent_text": rgb(text_on(raw["mauve"], raw)), "inactive": rgb(readable_dim(raw)),
             "negative": rgb(raw["red"]), "positive": rgb(raw["green"]),
             "neutral": rgb(raw["yellow"]), "link": rgb(raw["blue"]),
             "border": rgb(raw["surface1"]),
@@ -53,11 +106,11 @@ SECTIONS = ("Colors:Window", "Colors:View", "Colors:Button",
             "Colors:Header")
 
 
-def build(p):
-    lines = ["[General]",
-             f"ColorScheme={p['scheme']}",
-             "",
-             "[Colors:Selection]",
+def build(p, general=True):
+    lines = []
+    if general:
+        lines += ["[General]", f"ColorScheme={p['scheme']}", ""]
+    lines += ["[Colors:Selection]",
              f"BackgroundNormal={p['accent']}",
              f"BackgroundAlternate={p['accent']}",
              f"ForegroundNormal={p['accent_text']}",
@@ -162,7 +215,21 @@ def main():
         if kept.strip():
             handle.write("\n" + kept.lstrip("\n"))
 
-    print("kde: kdeglobals renk şeması yazıldı (uygulamalar yeniden açılınca)")
+    # kdeglobals'taki [General] ColorScheme= bir İSİM; KDE onu
+    # ~/.local/share/color-schemes/<İsim>.colors dosyasında arıyor. Dosya yoksa
+    # isim çözülemiyor ve KColorScheme derlenmiş KOYU varsayılana düşüyor —
+    # kdeglobals'ın içindeki [Colors:*] bölümleri doğru olsa bile. Kvantum
+    # zemini açık boyadığı için sonuç açık pencerede beyaz yazı oluyordu ve
+    # kdeglobals'a bakarak sorunu bulmak mümkün değildi.
+    scheme_dir = os.path.expanduser("~/.local/share/color-schemes")
+    os.makedirs(scheme_dir, exist_ok=True)
+    scheme_path = os.path.join(scheme_dir, palette["scheme"] + ".colors")
+    with open(scheme_path, "w", encoding="utf-8") as handle:
+        handle.write(f"[General]\nName={palette['scheme']}\nColorScheme={palette['scheme']}\n\n")
+        handle.write(build(palette, general=False))
+
+    print(f"kde: kdeglobals + {os.path.basename(scheme_path)} yazıldı "
+          "(uygulamalar yeniden açılınca)")
 
 
 if __name__ == "__main__":

@@ -53,8 +53,16 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        color: Theme.mantle
-        radius: 0
+        color: Theme.panelColor
+        radius: Theme.radiusPanel
+
+        // Aero sheen. Inert on the standard themes — Theme.gloss is 0 — and
+        // declared first so it sits under the content rather than over it.
+        GlossOverlay {
+            anchors.fill: parent
+            radius: parent.radius
+            midline: 0.3
+        }
         clip: true
 
         // ---- Başlık ----

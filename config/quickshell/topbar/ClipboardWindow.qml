@@ -119,10 +119,18 @@ PanelWindow {
         y: root.height - height - root.bottomGap
         width: 560
         height: 62 + tabRow.height + listArea.height + 12
-        color: Theme.base
+        color: Theme.panelColor
         border.color: Theme.surface0
-        border.width: 1
-        radius: 0
+        border.width: Theme.borderWidth
+        radius: Theme.radiusPanel
+
+        // Aero sheen. Inert on the standard themes — Theme.gloss is 0 — and
+        // declared first so it sits under the content rather than over it.
+        GlossOverlay {
+            anchors.fill: parent
+            radius: parent.radius
+            midline: 0.3
+        }
 
         opacity: 0
         scale: 0.94
@@ -162,7 +170,7 @@ PanelWindow {
                 color: Theme.text
                 font.pixelSize: 16
                 selectionColor: Theme.mauve
-                selectedTextColor: Theme.crust
+                selectedTextColor: Theme.textOn(Theme.mauve)
                 clip: true
                 focus: true
 
@@ -239,15 +247,16 @@ PanelWindow {
 
                         width: tabLabel.implicitWidth + 26
                         height: 28
-                        radius: 0
-                        color: {
-                            if (tab.current)
-                                return Theme.surface1
-                            return tabArea.containsMouse ? Theme.surface0 : "transparent"
-                        }
+                        radius: Theme.radius
+                        color: "transparent"
 
-                        Behavior on color {
-                            ColorAnimation { duration: 120 }
+                        ButtonSurface {
+                            anchors.fill: parent
+                            radius: parent.radius
+                            hovered: tabArea.containsMouse
+                            active: tab.current
+                            accentColor: Theme.surface1
+                            restingColor: "transparent"
                         }
 
                         Text {
@@ -285,7 +294,7 @@ PanelWindow {
                 anchors.verticalCenter: parent.verticalCenter
                 width: clearLabel.implicitWidth + 20
                 height: 24
-                radius: 0
+                radius: Theme.radius
                 color: {
                     if (clearButton.confirming)
                         return clearArea.containsMouse ? Theme.red : Theme.dangerBg
@@ -382,7 +391,7 @@ PanelWindow {
 
                     width: list.width
                     height: panel.rowHeight
-                    radius: 0
+                    radius: Theme.radius
                     color: {
                         if (entryRow.selected)
                             return Theme.selected
@@ -396,7 +405,7 @@ PanelWindow {
                         anchors.verticalCenter: parent.verticalCenter
                         width: 3
                         height: parent.height - 18
-                        radius: 0
+                        radius: Theme.radiusUpTo(3)
                         color: Theme.green
                         visible: entryRow.selected
                     }
@@ -531,7 +540,7 @@ PanelWindow {
     ParallelAnimation {
         id: openAnim
 
-        NumberAnimation { target: backdrop; property: "opacity"; to: 0.5; duration: 180; easing.type: Easing.OutQuad }
+        NumberAnimation { target: backdrop; property: "opacity"; to: Theme.backdropOpacity(0.5); duration: 180; easing.type: Easing.OutQuad }
         NumberAnimation { target: panel; property: "opacity"; to: 1; duration: 160; easing.type: Easing.OutQuad }
         NumberAnimation { target: panel; property: "scale"; to: 1; duration: 260; easing.type: Easing.OutBack; easing.overshoot: 0.9 }
     }
@@ -540,7 +549,7 @@ PanelWindow {
         id: closeAnim
 
         ParallelAnimation {
-            NumberAnimation { target: backdrop; property: "opacity"; to: 0; duration: 130; easing.type: Easing.InQuad }
+            NumberAnimation { target: backdrop; property: "opacity"; to: Theme.backdropOpacity(0); duration: 130; easing.type: Easing.InQuad }
             NumberAnimation { target: panel; property: "opacity"; to: 0; duration: 110; easing.type: Easing.InQuad }
             NumberAnimation { target: panel; property: "scale"; to: 0.94; duration: 130; easing.type: Easing.InQuad }
         }

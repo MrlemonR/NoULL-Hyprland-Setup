@@ -1,19 +1,22 @@
 -- File: lua/lemon/palette.lua
 --
 -- The editor's half of the system palette. Reads the same single source of
--- truth every other target reads:
---
---   ~/.config/quickshell/palettes.json  every theme's colors
---   ~/.config/quickshell/theme.txt      the active theme name
+-- truth every other target reads: ~/.config/quickshell/lemonrice.json — the
+-- palettes, the active theme name and everything else live in it (see
+-- `qs-config`, the only thing that writes it).
 --
 -- Nothing is generated into the nvim config: adding a theme is still one block
--- in palettes.json and nothing else, exactly as it is for kitty, dunst, btop
--- and the bar itself.
+-- in that file's `palettes` section and nothing else, exactly as it is for
+-- kitty, dunst, btop and the bar itself.
 
 local M = {}
 
-M.palettes_path = vim.fn.expand("~/.config/quickshell/palettes.json")
-M.state_path = vim.fn.expand("~/.config/quickshell/theme.txt")
+M.config_path = vim.fn.expand("~/.config/quickshell/lemonrice.json")
+
+-- Kept as aliases so the watcher in lua/plugins/colorscheme.lua keeps working;
+-- both used to be separate files.
+M.palettes_path = M.config_path
+M.state_path = M.config_path
 
 -- Written by `qs-theme`; only consulted when theme.txt cannot be read.
 local generated_path = vim.fn.stdpath("config") .. "/lua/qs-theme.lua"
@@ -58,26 +61,40 @@ end
 
 ---All themes in palettes.json, keyed by name. Empty table when unreadable.
 ---@return table<string, table>
-function M.themes()
-  local body = read_file(M.palettes_path)
+local function document()
+  local body = read_file(M.config_path)
   if not body or body == "" then
-    return {}
+    return nil
   end
   local ok, decoded = pcall(vim.json.decode, body)
   if not ok or type(decoded) ~= "table" then
-    return {}
+    return nil
   end
   return decoded
+end
+
+function M.themes()
+  local doc = document()
+  if not doc or type(doc.palettes) ~= "table" then
+    return {}
+  end
+  return doc.palettes
 end
 
 ---Theme names in the order palettes.json lists them.
 ---@return string[]
 function M.names()
-  local body = read_file(M.palettes_path) or ""
+  local body = read_file(M.config_path) or ""
+  -- json.decode loses key order, and the picker's order is the file's. Scoped
+  -- to the palettes block: the document holds settings and the bar's state too
+  -- now, and their keys would otherwise be listed as themes.
+  local block = body:match('"palettes"%s*:%s*(%b{})') or ""
+  -- Filtered against the decoded set: the pattern cannot tell a theme from a
+  -- nested object, so a palette's own `"style": {` was being listed as a theme.
+  local known = M.themes()
   local seen, order = {}, {}
-  -- json.decode loses key order, and the theme picker's order is the file's.
-  for name in body:gmatch('\n%s*"([%w%-_%.]+)"%s*:%s*{') do
-    if not seen[name] then
+  for name in block:gmatch('\n%s*"([%w%-_%.]+)"%s*:%s*{') do
+    if known[name] and not seen[name] then
       seen[name] = true
       order[#order + 1] = name
     end
@@ -88,15 +105,12 @@ function M.names()
   return vim.tbl_keys(M.themes())
 end
 
----The active theme name, from theme.txt with qs-theme.lua as a backstop.
+---The active theme name, with the generated qs-theme.lua as a backstop.
 ---@return string
 function M.current_name()
-  local body = read_file(M.state_path)
-  if body then
-    local name = body:gsub("%s+", "")
-    if name ~= "" then
-      return name
-    end
+  local doc = document()
+  if doc and type(doc.theme) == "string" and doc.theme ~= "" then
+    return doc.theme
   end
 
   local ok, generated = pcall(dofile, generated_path)

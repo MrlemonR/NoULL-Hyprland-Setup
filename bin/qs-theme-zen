@@ -29,8 +29,8 @@ ZEN_ROOT="$HOME/.config/zen"
 BEGIN="/* >>> qs-theme başlangıç — elle düzenlemeyin */"
 END="/* <<< qs-theme son */"
 
-# Renkler tek kaynaktan (bkz. qs-palette)
-if ! eval "$("$HOME/.local/bin/qs-palette" env "$THEME" 2>/dev/null)"; then
+# Renkler tek kaynaktan (bkz. qs-config)
+if ! eval "$("$HOME/.local/bin/qs-config" env "$THEME" 2>/dev/null)"; then
     echo "zen: '$THEME' için palet yok, atlandı"; exit 0
 fi
 ACCENT="$MAUVE"
@@ -76,6 +76,38 @@ $BEGIN
   --lwt-sidebar-background-color: $MANTLE !important;
   --lwt-sidebar-text-color: $TEXT !important;
   --newtab-background-color: $BASE !important;
+
+  /* YAZI RENGİ. Yukarısı yalnızca zemin veriyordu; yazı Firefox'un kendi
+     açık/koyu chrome kararından geliyor ve o hâlâ koyu diyor, yani ilk açık
+     palette bütün sekme başlıkları ve adres çubuğu açık-üstüne-açık kaldı.
+     Beş tema da koyu olduğu sürece görünmeyen bir eksikti. */
+  --lwt-text-color: $TEXT !important;
+  --toolbar-color: $TEXT !important;
+  --tab-selected-textcolor: $TEXT !important;
+  --toolbar-field-color: $TEXT !important;
+  --toolbar-field-focus-color: $TEXT !important;
+  --urlbar-popup-color: $TEXT !important;
+  --panel-color: $TEXT !important;
+  --arrowpanel-color: $TEXT !important;
+  --arrowpanel-background: $MANTLE !important;
+  --lwt-toolbarbutton-icon-fill: $TEXT !important;
+  --zen-colors-secondary-foreground: $SUBTEXT0 !important;
+  --sidebar-text-color: $TEXT !important;
+}
+
+/* Değişkeni okumayan yerler: sekme başlıkları ve adres çubuğu kendi
+   renklerini sabitliyor. */
+#navigator-toolbox,
+#navigator-toolbox *,
+.tabbrowser-tab .tab-label,
+.tab-label-container .tab-label,
+#urlbar,
+#urlbar-input,
+#urlbar .urlbar-input-box,
+.zen-current-workspace-indicator-name,
+#zen-sidebar-bottom-buttons,
+toolbarbutton label {
+  color: $TEXT !important;
 }
 
 /* Sol sekme çubuğunun zemini. Değişkenleri ezmek yetmiyor: workspace

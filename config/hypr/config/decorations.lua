@@ -1,14 +1,14 @@
--- Pencere kenarlık renkleri temadan geliyor.
--- config/theme.lua dosyasını qs-theme-hypr üretiyor (qs-theme <tema> çalışınca)
--- ve aynı renkleri hyprctl eval ile canlı olarak da uyguluyor.
--- Dosya yoksa aşağıdaki varsayılanlara düşülüyor.
+-- Pencere kenarlıklarının GRUP renkleri ve fare davranışı.
+--
+-- DİKKAT: blur, opaklık, gölge, boşluk, köşe yuvarlaması ve ana kenarlık
+-- ARTIK BURADA DEĞİL — hepsi config/effects.lua'da, tek yerde birleştirilip
+-- bir kez uygulanıyor. Dört ayrı dosyanın aynı anahtarları yazması ve
+-- kazananı require sırasının belirlemesi çorbanın kaynağıydı.
 local ok, theme = pcall(require, "config.theme")
 if not ok or type(theme) ~= "table" then
     theme = {}
 end
 
-local active_border     = theme.active_border     or MOCHALBLUE
-local inactive_border   = theme.inactive_border   or MOCHADBLUE
 local group_active      = theme.group_active      or CACHYLGREEN
 local group_inactive    = theme.group_inactive    or CACHYGRAY
 local groupbar_active   = theme.groupbar_active   or CACHYLGREEN
@@ -16,15 +16,8 @@ local groupbar_inactive = theme.groupbar_inactive or CACHYGRAY
 
 hl.config({
     general = {
-        gaps_in = 3,
-        gaps_out = 8,
-        border_size = 2,
         extend_border_grab_area = 10,
         resize_on_border = true,
-        col = {
-            active_border = active_border,
-            inactive_border = inactive_border,
-        },
     },
     group = {
         col = {
@@ -40,17 +33,6 @@ hl.config({
                 locked_active = CACHYDBLUE,
                 locked_inactive = groupbar_inactive,
             },
-        },
-    },
-    decoration = {
-        dim_special = 0.3,
-        active_opacity = 0.95,
-        inactive_opacity = 0.85,
-        fullscreen_opacity = 1,
-        blur = {
-            size = 5,
-            passes = 4,
-            special = true,
         },
     },
 })

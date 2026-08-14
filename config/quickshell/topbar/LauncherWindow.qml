@@ -144,7 +144,7 @@ PanelWindow {
         NumberAnimation {
             target: backdrop
             property: "opacity"
-            to: 0.55
+            to: Theme.backdropOpacity(0.55)
             duration: 180
             easing.type: Easing.OutQuad
         }

@@ -26,14 +26,14 @@ set -u
 
 ROOT="$HOME/Pictures/Wallpapers"
 HYPRPAPER_CONF="$HOME/.config/hypr/hyprpaper.conf"
-QS_STATE="$HOME/.config/quickshell/theme.txt"
+QS_STATE="$HOME/.config/quickshell/lemonrice.json"
 PER_THEME="$HOME/.config/quickshell/wallpapers.conf"
 # Tema başına kayda geçmeden önceki tek satırlık dosya (geriye dönük)
 LEGACY_STATE="$HOME/.config/quickshell/wallpaper.txt"
 
 current_theme() {
     if [[ -r "$QS_STATE" ]]; then
-        tr -d '[:space:]' < "$QS_STATE"
+        "$HOME/.local/bin/qs-config" theme
     else
         printf 'catppuccin-mocha'
     fi
@@ -139,7 +139,18 @@ read_for_theme() {
 # Ekranda gerçekten duran duvar kağıdı
 read_current() {
     local img=""
-    if [[ -r "$HYPRPAPER_CONF" ]]; then
+
+    # DİKKAT: animasyonlu duvar kağıdı mpvpaper'da çalışıyor, hyprpaper'a hiç
+    # girmiyor (video yolu onun config'inde geçersiz olurdu). O yüzden ÖNCE
+    # mpvpaper'a bakmak gerekiyor: yalnızca hyprpaper.conf'a bakmak, ekranda
+    # video varken en son gösterilen SABİT resmi bildiriyordu — ve apply-theme
+    # de "zaten bu resimde" deyip hiçbir şey yapmıyordu. Bir temadan diğerine
+    # geçerken duvar kağıdının değişmemesinin sebebi buydu.
+    if pgrep -x mpvpaper >/dev/null 2>&1; then
+        img=$(pgrep -a -x mpvpaper 2>/dev/null | head -1 | grep -oE '/[^ ]+\.(mp4|webm|mkv|avi|mov|gif)')
+    fi
+
+    if [[ -z "$img" || ! -f "$img" ]] && [[ -r "$HYPRPAPER_CONF" ]]; then
         img=$(grep -m1 -oP '^\s*path\s*=\s*\K.*' "$HYPRPAPER_CONF" | sed "s|^~|$HOME|")
     fi
     [[ -z "$img" || ! -f "$img" ]] && img=$(read_for_theme "$(current_theme)")

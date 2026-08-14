@@ -8,7 +8,7 @@
 #   qs-theme monochrome
 #
 # Dokunduğu yerler:
-#   quickshell : ~/.config/quickshell/theme.txt   (bar canlı olarak okur)
+#   quickshell : lemonrice.json'daki "theme" (bar canlı olarak okur)
 #   kitty      : ~/.config/kitty/current-theme.conf + SIGUSR1 ile yeniden yükleme
 #   gtk 3/4    : settings.ini + gsettings ile tema adı (tema kuruluysa)
 #   qt/kde     : ~/.config/Kvantum/kvantum.kvconfig (tema kuruluysa)
@@ -21,23 +21,17 @@ set -u
 
 BIN="$HOME/.local/bin"
 
-# Temalar ve renkler tek kaynaktan: ~/.config/quickshell/palettes.json
-mapfile -t THEMES < <("$BIN/qs-palette" list)
+# Temalar ve renkler tek kaynaktan: ~/.config/quickshell/lemonrice.json
+mapfile -t THEMES < <("$BIN/qs-config" themes)
 
-QS_STATE="$HOME/.config/quickshell/theme.txt"
 
 current_theme() {
-    if [[ -r "$QS_STATE" ]]; then
-        tr -d '[:space:]' < "$QS_STATE"
-    else
-        printf 'catppuccin-mocha'
-    fi
+    "$BIN/qs-config" theme
 }
 
 case "${1:-}" in
     "")
         current_theme
-        echo
         exit 0
         ;;
     list)
@@ -62,17 +56,19 @@ fi
 # Palet
 # ============================================================
 
-# Palet: qs-palette env BASE, MANTLE, TEXT, MAUVE … değişkenlerini veriyor
+# Palet: qs-config env BASE, MANTLE, TEXT, MAUVE … değişkenlerini veriyor
 # (GTK_THEME_NAME, KVANTUM_THEME, NVIM_SCHEME de oradan geliyor)
-eval "$("$BIN/qs-palette" env "$THEME")"
+eval "$("$BIN/qs-config" env "$THEME")"
 SUBTEXT="$SUBTEXT0"
+AERO_GLASS="$("$BIN/qs-config" get settings.aeroGlass)"
 
 # ============================================================
 # 1. quickshell
 # ============================================================
 
-mkdir -p "$(dirname "$QS_STATE")"
-printf '%s' "$THEME" > "$QS_STATE"
+# Tek yazan yer qs-config; bar ve nvim dosyayı izlediği için başka bir şey
+# söylemeye gerek yok.
+"$BIN/qs-config" set theme "$THEME"
 echo "quickshell: $THEME"
 
 # ============================================================
@@ -122,6 +118,28 @@ color14 $CYAN
 color7 $SUBTEXT
 color15 $TEXT
 EOF
+
+    # DENENDİ VE GERİ ALINDI: background_image ile kitty'ye Aero gradyanı
+    # verilmişti. kitty bir arka plan görseli varken pencereyi OPAK çiziyor —
+    # background_opacity 0.8 devre dışı kalıyor ve terminal düz mat oluyor.
+    # Cam saydamlığı gradyandan daha değerli, o yüzden görsel yok. Dosya
+    # boş bırakılıyor, silinmiyor: kitty.conf onu include ediyor ve include
+    # edilen dosya yoksa kitty hiç açılmıyor.
+    : > "$HOME/.config/kitty/gloss.conf"
+
+    KITTY_GLOSS="$HOME/.config/kitty/gloss.conf"
+    if [[ "$AERO_GLASS" == "on" && -f "$GLOSS_PNG" ]]; then
+        cat > "$KITTY_GLOSS" <<EOF
+# qs-theme tarafından üretildi — Aero Glass açıkken
+background_image $GLOSS_PNG
+background_image_layout scaled
+background_tint 0.85
+EOF
+    else
+        # Cam kapalıyken dosya BOŞ kalıyor, silinmiyor: kitty.conf onu
+        # include ediyor ve include edilen dosya yoksa kitty hata veriyor.
+        : > "$KITTY_GLOSS"
+    fi
     # DİKKAT: kitty'nin otomatik tema özelliği var — config dizininde
     # dark-theme.auto.conf varsa sistem koyu moddayken onu uygulayıp
     # current-theme.conf'u eziyor. Bu yüzden aynı içeriği oraya da yazıyoruz.
@@ -150,7 +168,7 @@ fi
 # tıpkı qs-ytmd-titlebar gibi ayrıca sudo ile çalıştırmak gerekiyor.
 # ============================================================
 
-for helper in qs-theme-gtk qs-theme-kvantum qs-theme-kde qs-theme-dunst qs-theme-btop qs-theme-ytmd qs-theme-hypr qs-theme-hyprlock qs-theme-zen qs-theme-grub qs-theme-sddm; do
+for helper in qs-theme-gtk qs-theme-kvantum qs-theme-qt6ct qs-theme-kde qs-theme-dunst qs-theme-btop qs-theme-ytmd qs-theme-hypr qs-theme-hyprlock qs-theme-zen qs-theme-grub qs-theme-sddm; do
     if [[ -x "$BIN/$helper" ]]; then
         "$BIN/$helper" "$THEME" || echo "${helper#qs-theme-}: başarısız, atlandı"
     fi

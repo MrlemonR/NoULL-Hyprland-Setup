@@ -17,8 +17,8 @@ THEME="${1:-}"
 
 OUT="$HOME/.config/hypr/config/theme.lua"
 
-# Renkler tek kaynaktan (bkz. qs-palette)
-if ! eval "$("$HOME/.local/bin/qs-palette" env "$THEME" 2>/dev/null)"; then
+# Renkler tek kaynaktan (bkz. qs-config)
+if ! eval "$("$HOME/.local/bin/qs-config" env "$THEME" 2>/dev/null)"; then
     echo "hypr: '$THEME' için palet yok, atlandı"; exit 0
 fi
 ACCENT="${MAUVE#\#}"     # kenarlık vurgusu
@@ -33,6 +33,17 @@ INACTIVE="rgba(${MUTED}ff)"
 GROUP_ACTIVE="rgba(${ACCENT2}ff)"
 GROUP_INACTIVE="rgba(${DIM}ff)"
 
+# Pencere köşe yuvarlaması. Custom temaların style bloğundan geliyor; standart
+# temalarda anahtar yok -> 0 -> bugünkü keskin köşeler.
+ROUNDING=$(python3 -c '
+import json, os, sys
+try:
+    with open(os.path.expanduser("~/.config/quickshell/lemonrice.json")) as f:
+        print(int(json.load(f)["palettes"].get(sys.argv[1], {}).get("style", {}).get("windowRounding", 0)))
+except Exception:
+    print(0)
+' "$THEME")
+
 # ---------------- 1. Kalıcı dosya ----------------
 
 if [[ -w "$(dirname "$OUT")" ]]; then
@@ -46,6 +57,7 @@ return {
     group_inactive     = "$GROUP_INACTIVE",
     groupbar_active    = "$GROUP_ACTIVE",
     groupbar_inactive  = "$GROUP_INACTIVE",
+    rounding           = $ROUNDING,
 }
 EOF
     echo "hypr: theme.lua yazıldı"
@@ -64,6 +76,7 @@ fi
 # ("keyword can't work with non-legacy parsers. Use eval."), Lua veren
 # "hyprctl eval" gerekiyor.
 if hyprctl eval "hl.config({
+    decoration = { rounding = $ROUNDING },
     general = { col = {
         active_border = \"$ACTIVE\",
         inactive_border = \"$INACTIVE\",
@@ -79,7 +92,7 @@ if hyprctl eval "hl.config({
         } },
     },
 })" >/dev/null; then
-    echo "hypr: kenarlık renkleri uygulandı ($THEME)"
+    echo "hypr: kenarlık renkleri + rounding=$ROUNDING uygulandı ($THEME)"
 else
     echo "hypr: canlı uygulama başarısız (dosya yazıldı, reload'da gelir)"
 fi

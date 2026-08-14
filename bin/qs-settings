@@ -6,6 +6,7 @@
 #   qs-settings get <key>          print one value (on/off)
 #   qs-settings set <key> on|off
 #   qs-settings toggle <key>
+#   qs-settings set <key> <number> for the sliders (see NUM_RANGE)
 #   qs-settings apply              re-apply everything to the running compositor
 #
 # Source of truth: ~/.config/quickshell/settings.json. The bar watches that file
@@ -13,7 +14,7 @@
 # change made in the menu comes back through this script.
 #
 # Applying is deliberately thin: this script writes JSON and hands the work to
-# config/toggles.lua, which is the only place that knows what each key means.
+# config/effects.lua, which is the only place that knows what each key means.
 # Turning something off runs that file; turning it back on is `hyprctl reload`,
 # which restores animations.lua/decorations.lua and then runs toggles.lua again
 # at the end of hyprland.lua for whatever is still off. So the "on" values are
@@ -25,10 +26,21 @@
 
 set -uo pipefail
 
-CONF="$HOME/.config/quickshell/settings.json"
-TOGGLES_LUA="$HOME/.config/hypr/config/toggles.lua"
+CFG="$HOME/.local/bin/qs-config"
+EFFECTS_LUA="$HOME/.config/hypr/config/effects.lua"
 
-KEYS=(animations blur shadows transparency gaps)
+KEYS=(animations blur shadows transparency gaps aeroGlass)
+
+# Sliders. A number changes what "on" MEANS, so it is not applied on top by
+# toggles.lua — animations.lua and decorations.lua read it themselves, and a
+# reload is what lands it. That way each setting has exactly one definition.
+#   key -> "min max default"
+declare -A NUM_RANGE=(
+    [animationSpeed]="0.25 4 1"
+    [blurAmount]="1 20 5"
+    [transparencyAmount]="0.5 1 0.95"
+    [gapsAmount]="0 40 8"
+)
 
 declare -A LABEL=(
     [animations]="Animations"
@@ -36,6 +48,11 @@ declare -A LABEL=(
     [shadows]="Shadows"
     [transparency]="Window transparency"
     [gaps]="Window gaps"
+    [aeroGlass]="Aero glass"
+    [animationSpeed]="Animation speed"
+    [blurAmount]="Blur amount"
+    [transparencyAmount]="Transparency"
+    [gapsAmount]="Gap size"
 )
 
 die() { echo "qs-settings: $*" >&2; exit 1; }
@@ -48,37 +65,84 @@ known() {
     return 1
 }
 
-# Everything defaults to on, so a missing or unreadable file means "normal look"
-# rather than a bar full of dead toggles.
-value_of() {
-    local key="$1" raw
-    [[ -r "$CONF" ]] || { echo on; return; }
-    raw=$(jq -r --arg k "$key" '.[$k] // empty' "$CONF" 2>/dev/null)
-    [[ "$raw" == "false" ]] && echo off || echo on
+is_number_key() {
+    [[ -n "${NUM_RANGE[$1]:-}" ]]
 }
 
+all_keys() { printf '%s ' "${KEYS[@]}" "${!NUM_RANGE[@]}"; }
+
+number_of() {
+    "$CFG" get "settings.$1"
+}
+
+set_number() {
+    local key="$1" want="$2" min max
+    read -r min max _ <<<"${NUM_RANGE[$key]}"
+
+    [[ "$want" =~ ^-?[0-9]+(\.[0-9]+)?$ ]] || die "value must be a number, got '$want'"
+    # Clamp rather than reject: the slider cannot send a bad value, but a hand
+    # typed one should not be able to leave the session unusable.
+    want=$(awk -v v="$want" -v lo="$min" -v hi="$max" \
+        'BEGIN { if (v < lo) v = lo; if (v > hi) v = hi; printf "%g", v }')
+
+    write_value "$key" "$want"
+    # These live in animations.lua / decorations.lua, which only run on reload.
+    # apply_all afterwards puts back whatever is still switched off.
+    hyprctl reload >/dev/null 2>&1
+    apply_all
+
+    echo "${LABEL[$key]}: $want"
+}
+
+# Everything defaults to on, so a missing or unreadable file means "normal look"
+# rather than a bar full of dead toggles. The exception is anything that is not
+# part of the normal look — opt-in effects have to default off, or a fresh
+# install claims they are already enabled. Kept in step with
+# SettingsService.defaultOff.
+DEFAULT_OFF=(aeroGlass)
+
+defaults_off() {
+    local key="$1" k
+    for k in "${DEFAULT_OFF[@]}"; do
+        [[ "$k" == "$key" ]] && return 0
+    done
+    return 1
+}
+
+value_of() {
+    "$CFG" get "settings.$1"
+}
+
+# Read-modify-write, so two of these racing can interleave and leave a file
+# with a second closing brace stapled on — which then makes every later write
+# refuse, by design, until a human fixes it. Serialised with flock: cheap, and
+# the alternative (temp file + rename) would swap the inode out from under the
+# bar's FileView watch.
 write_value() {
-    local key="$1" value="$2" json
-    mkdir -p "$(dirname "$CONF")"
-    [[ -s "$CONF" ]] || printf '{}' > "$CONF"
-
-    json=$(jq --arg k "$key" --argjson v "$value" '.[$k] = $v' "$CONF" 2>/dev/null) \
-        || die "settings.json is not valid JSON — fix or delete $CONF"
-
-    # Truncate in place instead of writing a temp file and renaming: the bar
-    # watches this path, and a rename swaps the inode out from under the watch.
-    printf '%s\n' "$json" > "$CONF"
+    # Storage, locking and validation all live in qs-config now — this script
+    # only decides what a change MEANS.
+    "$CFG" set "settings.$1" "$2"
 }
 
 # Push every "off" key into the running compositor.
 apply_all() {
-    [[ -r "$TOGGLES_LUA" ]] || return 0
-    hyprctl eval "dofile('$TOGGLES_LUA')" >/dev/null 2>&1
+    # `hyprctl eval "dofile(effects.lua)"` DEĞİL: o dosya artık
+    # `require("config.settings")` ediyor ve eval bağlamında paket yolu yok,
+    # çağrı sessizce düşüyordu. effects.lua zaten hyprland.lua'nın EN SONUNDA
+    # çalıştığı için reload her zaman doğru sonucu veriyor — tek yol, tek
+    # davranış.
+    hyprctl reload >/dev/null 2>&1
 }
 
 set_value() {
     local key="$1" want="$2"
-    known "$key" || die "unknown key '$key' (have: ${KEYS[*]})"
+
+    if is_number_key "$key"; then
+        set_number "$key" "$want"
+        return
+    fi
+
+    known "$key" || die "unknown key '$key' (have: $(all_keys))"
 
     case "$want" in
         on|true|1)   want=on ;;
@@ -86,15 +150,24 @@ set_value() {
         *) die "value must be on or off, got '$2'" ;;
     esac
 
+    # Aero glass IS blur plus transparency, tuned together (config/glass.lua).
+    # The exclusion lives here rather than only in the settings screen for the
+    # same reason every other write does: the CLI and the panel must not be
+    # able to drift apart.
     if [[ "$want" == "on" ]]; then
-        write_value "$key" true
-        # Restores the configured values; toggles.lua runs last in hyprland.lua
-        # and re-applies whatever is still off.
-        hyprctl reload >/dev/null 2>&1
-    else
-        write_value "$key" false
-        apply_all
+        case "$key" in
+            aeroGlass)
+                write_value blur false
+                write_value transparency false
+                ;;
+            blur|transparency)
+                write_value aeroGlass false
+                ;;
+        esac
     fi
+
+    write_value "$key" "$([[ "$want" == "on" ]] && echo true || echo false)"
+    apply_all
 
     echo "${LABEL[$key]}: $want"
 }
@@ -102,21 +175,28 @@ set_value() {
 case "${1:-list}" in
     list)
         for key in "${KEYS[@]}"; do
-            printf '%-14s %s\n' "$key" "$(value_of "$key")"
+            printf '%-20s %s\n' "$key" "$(value_of "$key")"
+        done
+        for key in "${!NUM_RANGE[@]}"; do
+            printf '%-20s %s\n' "$key" "$(number_of "$key")"
         done
         ;;
     get)
         [[ $# -ge 2 ]] || die "usage: qs-settings get <key>"
-        known "$2" || die "unknown key '$2' (have: ${KEYS[*]})"
-        value_of "$2"
+        if is_number_key "$2"; then
+            number_of "$2"
+        else
+            known "$2" || die "unknown key '$2' (have: $(all_keys))"
+            value_of "$2"
+        fi
         ;;
     set)
-        [[ $# -ge 3 ]] || die "usage: qs-settings set <key> on|off"
+        [[ $# -ge 3 ]] || die "usage: qs-settings set <key> on|off|<number>"
         set_value "$2" "$3"
         ;;
     toggle)
         [[ $# -ge 2 ]] || die "usage: qs-settings toggle <key>"
-        known "$2" || die "unknown key '$2' (have: ${KEYS[*]})"
+        known "$2" || die "unknown key '$2' (have: $(all_keys))"
         [[ "$(value_of "$2")" == "on" ]] && set_value "$2" off || set_value "$2" on
         ;;
     apply)

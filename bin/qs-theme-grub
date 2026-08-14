@@ -46,7 +46,7 @@ while (( $# )); do
 done
 
 # ============================================================
-# sudo altında asıl kullanıcının ev dizini (bkz. qs-palette)
+# sudo altında asıl kullanıcının ev dizini (bkz. qs-config)
 # ============================================================
 
 user_home() {
@@ -59,16 +59,16 @@ user_home() {
 UHOME="$(user_home)"
 BIN="$UHOME/.local/bin"
 
-[[ -x "$BIN/qs-palette" ]] || { echo "grub: qs-palette bulunamadı, atlandı"; exit 0; }
+[[ -x "$BIN/qs-config" ]] || { echo "grub: qs-config bulunamadı, atlandı"; exit 0; }
 
 # Tema verilmediyse etkin temayı al
 if [[ -z "$THEME" ]]; then
-    STATE="$UHOME/.config/quickshell/theme.txt"
-    THEME="$( [[ -r "$STATE" ]] && tr -d '[:space:]' < "$STATE" || echo catppuccin-mocha )"
+    STATE="$UHOME/.config/quickshell/lemonrice.json"
+    THEME="$( [[ -r "$STATE" ]] && "$HOME/.local/bin/qs-config" theme || echo catppuccin-mocha )"
 fi
 
-# Renkler tek kaynaktan (bkz. qs-palette)
-if ! eval "$("$BIN/qs-palette" env "$THEME" 2>/dev/null)"; then
+# Renkler tek kaynaktan (bkz. qs-config)
+if ! eval "$("$BIN/qs-config" env "$THEME" 2>/dev/null)"; then
     echo "grub: '$THEME' için palet yok, atlandı"; exit 0
 fi
 

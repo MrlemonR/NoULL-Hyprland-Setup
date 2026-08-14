@@ -126,10 +126,18 @@ PanelWindow {
         y: root.height - height - root.bottomGap
         width: 560
         height: Math.min(root.height * 0.7, cardHeader.height + contentColumn.implicitHeight + 46)
-        color: Theme.base
+        color: Theme.panelColor
         border.color: Theme.surface0
-        border.width: 1
-        radius: 0
+        border.width: Theme.borderWidth
+        radius: Theme.radiusPanel
+
+        // Aero sheen. Inert on the standard themes — Theme.gloss is 0 — and
+        // declared first so it sits under the content rather than over it.
+        GlossOverlay {
+            anchors.fill: parent
+            radius: parent.radius
+            midline: 0.3
+        }
 
         opacity: 0
         scale: 0.94
@@ -293,7 +301,7 @@ PanelWindow {
                         width: contentColumn.width - 32
                         height: 240
                         color: Theme.mantle
-                        border.width: 1
+                        border.width: Theme.borderWidth
                         border.color: Theme.surface0
                         clip: true
 

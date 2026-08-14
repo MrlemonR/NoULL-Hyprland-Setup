@@ -29,10 +29,18 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        color: Theme.base
+        color: Theme.panelColor
         border.color: Theme.surface0
-        border.width: 1
-        radius: 0
+        border.width: Theme.borderWidth
+        radius: Theme.radiusPanel
+
+        // Aero sheen. Inert on the standard themes — Theme.gloss is 0 — and
+        // declared first so it sits under the content rather than over it.
+        GlossOverlay {
+            anchors.fill: parent
+            radius: parent.radius
+            midline: 0.3
+        }
 
         // ---------------- Arama satırı ----------------
         Item {
@@ -68,7 +76,7 @@ Item {
                 color: Theme.text
                 font.pixelSize: 16
                 selectionColor: Theme.mauve
-                selectedTextColor: Theme.crust
+                selectedTextColor: Theme.textOn(Theme.mauve)
                 clip: true
                 focus: true
 
@@ -147,15 +155,16 @@ Item {
 
                         width: tabLabel.implicitWidth + 26
                         height: 28
-                        radius: 0
-                        color: {
-                            if (tab.current)
-                                return Theme.peach
-                            return tabArea.containsMouse ? Theme.surface0 : "transparent"
-                        }
+                        radius: Theme.radius
+                        color: "transparent"
 
-                        Behavior on color {
-                            ColorAnimation { duration: 120 }
+                        ButtonSurface {
+                            anchors.fill: parent
+                            radius: parent.radius
+                            hovered: tabArea.containsMouse
+                            active: tab.current
+                            accentColor: Theme.peach
+                            restingColor: "transparent"
                         }
 
                         Text {
@@ -163,7 +172,7 @@ Item {
 
                             anchors.centerIn: parent
                             text: tab.modelData.label
-                            color: tab.current ? Theme.crust : Theme.subtext0
+                            color: tab.current ? Theme.textOn(Theme.peach) : Theme.subtext0
                             font.pixelSize: 13
                             font.bold: tab.current
                         }
@@ -230,7 +239,7 @@ Item {
 
                     width: list.width
                     height: root.rowHeight
-                    radius: 0
+                    radius: Theme.radius
                     color: {
                         if (resultRow.selected)
                             return Qt.rgba(Theme.peach.r, Theme.peach.g, Theme.peach.b, 0.14)
@@ -242,7 +251,7 @@ Item {
                         anchors.verticalCenter: parent.verticalCenter
                         width: 3
                         height: parent.height - 16
-                        radius: 0
+                        radius: Theme.radiusUpTo(3)
                         color: Theme.peach
                         visible: resultRow.selected
                     }

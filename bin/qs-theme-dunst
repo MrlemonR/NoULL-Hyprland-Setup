@@ -14,17 +14,17 @@ import re
 import subprocess
 import sys
 
-PALETTES_FILE = os.path.expanduser("~/.config/quickshell/palettes.json")
+PALETTES_FILE = os.path.expanduser("~/.config/quickshell/lemonrice.json")
 
 
 def load_palette(theme):
-    """Renkler tek kaynaktan: ~/.config/quickshell/palettes.json (qs-palette).
+    """Renkler tek kaynaktan: ~/.config/quickshell/lemonrice.json (qs-config).
 
     Yeni tema eklerken burayı değil o dosyayı düzenlemek yeterli.
     """
     try:
         with open(PALETTES_FILE, encoding="utf-8") as handle:
-            raw = json.load(handle).get(theme)
+            raw = json.load(handle)["palettes"].get(theme)
     except (OSError, ValueError):
         return None
     if raw is None:
@@ -56,6 +56,18 @@ RULES = {
     ("qs_reminder", "highlight"): "blue",
 }
 
+# Renk değil ÖLÇÜ: custom temaların style bloğundan gelen köşe yuvarlaması.
+# Standart temalarda anahtar yok -> 0 -> bugünkü keskin köşeler.
+GEOMETRY = {("global", "corner_radius"): "notifyRadius"}
+
+
+def load_style(theme):
+    try:
+        with open(PALETTES_FILE, encoding="utf-8") as handle:
+            return json.load(handle)["palettes"].get(theme, {}).get("style", {}) or {}
+    except (OSError, ValueError):
+        return {}
+
 
 def main():
     if len(sys.argv) < 2:
@@ -63,6 +75,7 @@ def main():
 
     theme = sys.argv[1]
     palette = load_palette(theme)
+    style = load_style(theme)
     if palette is None:
         sys.exit(f"qs-theme-dunst: bilinmeyen tema '{theme}'")
 
@@ -88,6 +101,18 @@ def main():
             continue
 
         key = assignment.group(2)
+
+        # Ölçüler tırnaksız yazılıyor, renkler tırnaklı — dunst ikisini de
+        # kabul etmiyor karşılıklı olarak.
+        style_key = GEOMETRY.get((section, key))
+        if style_key is not None:
+            value = int(style.get(style_key, 0) or 0)
+            new_line = f'{assignment.group(1)}{key}{assignment.group(3)}{value}\n'
+            if new_line != line:
+                lines[index] = new_line
+                changed += 1
+            continue
+
         palette_key = RULES.get((section, key))
         if palette_key is None:
             continue
@@ -103,7 +128,7 @@ def main():
 
     subprocess.run(["dunstctl", "reload"], check=False,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    print(f"dunst: {changed} renk güncellendi ve yeniden yüklendi")
+    print(f"dunst: {changed} değer güncellendi ve yeniden yüklendi")
 
 
 if __name__ == "__main__":

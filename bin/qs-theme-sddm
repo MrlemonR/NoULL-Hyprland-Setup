@@ -41,7 +41,7 @@ while (( $# )); do
     esac
 done
 
-# sudo altında asıl kullanıcının ev dizini (bkz. qs-palette)
+# sudo altında asıl kullanıcının ev dizini (bkz. qs-config)
 user_home() {
     if [[ -n "${SUDO_USER:-}" && $EUID -eq 0 ]]; then
         eval echo "~$SUDO_USER"
@@ -52,14 +52,14 @@ user_home() {
 UHOME="$(user_home)"
 BIN="$UHOME/.local/bin"
 
-[[ -x "$BIN/qs-palette" ]] || { echo "sddm: qs-palette bulunamadı, atlandı"; exit 0; }
+[[ -x "$BIN/qs-config" ]] || { echo "sddm: qs-config bulunamadı, atlandı"; exit 0; }
 
 if [[ -z "$THEME" ]]; then
-    STATE="$UHOME/.config/quickshell/theme.txt"
-    THEME="$( [[ -r "$STATE" ]] && tr -d '[:space:]' < "$STATE" || echo catppuccin-mocha )"
+    STATE="$UHOME/.config/quickshell/lemonrice.json"
+    THEME="$( [[ -r "$STATE" ]] && "$HOME/.local/bin/qs-config" theme || echo catppuccin-mocha )"
 fi
 
-if ! eval "$("$BIN/qs-palette" env "$THEME" 2>/dev/null)"; then
+if ! eval "$("$BIN/qs-config" env "$THEME" 2>/dev/null)"; then
     echo "sddm: '$THEME' için palet yok, atlandı"; exit 0
 fi
 

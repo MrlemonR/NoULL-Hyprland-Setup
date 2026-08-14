@@ -15,8 +15,8 @@ if [[ ! -w "$DIR" ]]; then
     exit 0
 fi
 
-# Renkler tek kaynaktan (bkz. qs-palette)
-if ! eval "$("$HOME/.local/bin/qs-palette" env "$THEME" 2>/dev/null)"; then
+# Renkler tek kaynaktan (bkz. qs-config)
+if ! eval "$("$HOME/.local/bin/qs-config" env "$THEME" 2>/dev/null)"; then
     echo "btop: bilinmeyen tema '$THEME', atlandı"; exit 0
 fi
 BG="$BASE"; FG="$TEXT"; DIM="$SURFACE1"; MID="$SURFACE2"

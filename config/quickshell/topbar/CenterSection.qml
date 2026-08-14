@@ -184,10 +184,14 @@ Item {
                 Layout.preferredWidth: hovered ? (36 + groupedApps.length * 20) : 22
                 Layout.preferredHeight: 22
                 height: 22
-                radius: 0
-                color: active ? Theme.blue : (hovered ? Theme.surface0 : Theme.base)
+                radius: Theme.radius
+                // Resting state paints NOTHING rather than the bar's own colour.
+                // The two were identical while the bar was always opaque, so
+                // the difference never showed; the moment the bar goes
+                // translucent an opaque box is a hole in the glass.
+                color: active ? Theme.blue : (hovered ? Theme.surface0 : "transparent")
                 border.color: Theme.surface1
-                border.width: 1
+                border.width: Theme.borderWidth
 
                 z: hovered ? 10 : 0
 
@@ -199,7 +203,7 @@ Item {
                     anchors.centerIn: parent
                     visible: !wsBox.hovered
                     text: wsBox.modelData.name
-                    color: wsBox.active ? Theme.base : Theme.text
+                    color: wsBox.active ? Theme.textOn(Theme.blue) : Theme.text
                     font.pixelSize: 12
                     font.bold: true
                 }
@@ -231,7 +235,7 @@ Item {
                                 anchors.fill: parent
                                 visible: !appIconImage.visible
                                 color: Theme.surface1
-                                radius: 0
+                                radius: Theme.radius
 
                                 Text {
                                     anchors.centerIn: parent
@@ -250,7 +254,7 @@ Item {
                                 visible: modelData.count > 1
                                 width: 10
                                 height: 10
-                                radius: 0
+                                radius: Theme.radiusUpTo(10)
                                 color: Theme.red
                                 anchors.right: parent.right
                                 anchors.bottom: parent.bottom
@@ -260,7 +264,7 @@ Item {
                                 Text {
                                     anchors.centerIn: parent
                                     text: modelData.count
-                                    color: Theme.base
+                                    color: Theme.textOn(Theme.red)
                                     font.pixelSize: 7
                                     font.bold: true
                                 }
@@ -296,10 +300,10 @@ Item {
         anchors.centerIn: parent
         width: specialRow.implicitWidth + 18
         height: 22
-        radius: 0
+        radius: Theme.radius
         color: Theme.mauve
         border.color: Theme.surface1
-        border.width: 1
+        border.width: Theme.borderWidth
 
         opacity: root.specialActive ? 1 : 0
         visible: root.workspacesShown && opacity > 0
@@ -322,7 +326,7 @@ Item {
             Text {
                 anchors.verticalCenter: parent.verticalCenter
                 text: root.specialLabel
-                color: Theme.base
+                color: Theme.textOn(Theme.mauve)
                 font.pixelSize: 12
                 font.bold: true
             }

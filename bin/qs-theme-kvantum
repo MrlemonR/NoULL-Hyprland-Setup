@@ -17,7 +17,7 @@ import sys
 KV_DIR = os.path.expanduser("~/.config/Kvantum")
 SOURCE = "catppuccin-mocha-mauve"
 GENERATED_PREFIX = "qs-"
-PALETTES_FILE = os.path.expanduser("~/.config/quickshell/palettes.json")
+PALETTES_FILE = os.path.expanduser("~/.config/quickshell/lemonrice.json")
 
 # Kaynak tema catppuccin olduğu için onun hexleri hedef paletin karşılıklarıyla
 # değiştiriliyor. Eşleşmeyen renkler (gölge, vurgu tonları) olduğu gibi kalıyor.
@@ -28,18 +28,105 @@ SOURCE_KEYS = {
     "text": "#cdd6f4", "mauve": "#cba6f7", "blue": "#89b4fa", "red": "#f38ba8",
     "green": "#a6e3a1", "yellow": "#f9e2af", "peach": "#fab387",
     "pink": "#f5c2e7", "cyan": "#94e2d5",
+    # Catppuccin's remaining ramp. Without these they survive the substitution
+    # untouched — `text.normal.color=#9399b2` (overlay2) is what left Dolphin's
+    # sidebar and every icon-view filename unreadable on the first light theme.
+    "overlay0#1": "#7f849c",   # overlay1
+    "overlay0#2": "#9399b2",   # overlay2
+    "mauve#1": "#b4befe",      # lavender
+    "blue#1": "#74c7ec",       # sapphire
+    "blue#2": "#89dceb",       # sky
+    "cyan#1": "#94e2d5",       # teal
+    "red#1": "#eba0ac",        # maroon
+    "pink#1": "#f2cdcd",       # flamingo
+    "pink#2": "#f5e0dc",       # rosewater
 }
 
-HEX = re.compile(r"#([0-9a-fA-F]{6})\b")
+# Kvantum also writes 8-digit #rrggbbaa (highlight.color is one), which a
+# 6-digit-only pattern walked straight past.
+HEX = re.compile(r"#([0-9a-fA-F]{8}|[0-9a-fA-F]{6})\b")
 
 
 def recolor(match, palette):
     """Catppuccin hexini hedef paletin karşılığıyla değiştir."""
-    value = "#" + match.group(1).lower()
+    raw = match.group(1).lower()
+    alpha = raw[6:] if len(raw) == 8 else ""
+    value = "#" + raw[:6]
     for key, source_hex in SOURCE_KEYS.items():
         if value == source_hex:
-            return palette.get(key, value)
-    return value
+            # "mauve#1" gibi anahtarlar aynı palet rengine birden çok kaynak
+            # rengi bağlıyor.
+            return palette.get(key.split("#")[0], value) + alpha
+    return "#" + raw
+
+
+def relative_luminance(value):
+    """WCAG'in gamma düzeltmeli parlaklığı.
+
+    Ham (0.2126R+0.7152G+0.0722B)/255 ile karıştırılmamalı: o, okunurluk için
+    yanıltıyor. #7fb0c9 açık zeminde ham farkı 0.29 verip eşiği geçiyordu ama
+    gerçek kontrastı 2.1:1, yani okunmuyordu — Dolphin'in kenar çubuğu tam
+    olarak bu yüzden iki denemede düzelmedi.
+    """
+    v = value.lstrip("#")[:6]
+    out = []
+    for i in (0, 2, 4):
+        c = int(v[i:i + 2], 16) / 255
+        out.append(c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4)
+    return 0.2126 * out[0] + 0.7152 * out[1] + 0.0722 * out[2]
+
+
+def contrast(a, b):
+    """WCAG kontrast oranı, 1:1 ile 21:1 arası."""
+    la, lb = relative_luminance(a), relative_luminance(b)
+    if la < lb:
+        la, lb = lb, la
+    return (la + 0.05) / (lb + 0.05)
+
+def luminance(value):
+    v = value.lstrip("#")[:6]
+    r, g, b = (int(v[i:i + 2], 16) for i in (0, 2, 4))
+    return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+
+
+def fix_text_contrast(content, palette):
+    """Yazı renklerini zemine göre okunur hale getir.
+
+    Hex eşleştirme rengin YERİNİ koruyor ama ANLAMINI korumuyor: kaynak
+    temada `mantle` "vurgu üzerine koyu yazı" demekken bizim açık paletimizde
+    mantle açık bir renk, yani aynı slot açık-üstüne-açık oluyor. Eşleşmeyen
+    renkler de olduğu gibi kalıyor. İkisinin sonucu da aynı: okunmayan yazı.
+
+    Bu yüzden adı `text` geçen anahtarlar sonradan kontrast için denetleniyor;
+    zeminden yeterince ayrılmıyorsa paletin karşı ucuna çekiliyor.
+
+    `disabled` de dahil, ayrı bir eşikle. İlk denemede onu dışarıda bırakmıştım
+    ("soluk olması gerekiyor" diye) ve Dolphin'in kenar çubuğu okunmaz kalmayı
+    sürdürdü: kaynak temanın disabled rengi surface2'ye eşleniyor, açık palette
+    o da zeminden yalnızca 0.25 ayrılıyor. Soluk ile okunmaz arasındaki fark
+    tam olarak bu — soluk hedefi overlay0.
+    """
+    base_lum = luminance(palette["base"])
+    dark, light = palette["text"], palette["base"]
+    if luminance(dark) > luminance(light):
+        dark, light = light, dark
+    readable = dark if base_lum > 0.5 else light
+
+    base = palette["base"]
+
+    def repl(match):
+        key, value = match.group(1), match.group(2)
+        dim = "disabled" in key
+        # 4.5:1 normal metin, 3:1 bilerek soluk olan — WCAG'in eşikleri.
+        floor = 3.0 if dim else 4.5
+        if contrast(value, base) >= floor:
+            return match.group(0)
+        target = palette["overlay0"] if dim else readable
+        if contrast(target, base) < floor:
+            target = palette["subtext0"] if dim else readable
+        return f"{key}={target}"
+
+    return re.sub(r"(?m)^([\w.]*text[\w.]*color)=(#[0-9a-fA-F]{6,8})", repl, content)
 
 
 def to_gray(match):
@@ -75,6 +162,7 @@ def build_theme(theme, palette):
                 content = handle.read()
             content = HEX.sub(lambda m: recolor(m, palette), content)
             if name.endswith(".kvconfig"):
+                content = fix_text_contrast(content, palette)
                 content = content.replace(SOURCE, generated)
             with open(dst_file, "w", encoding="utf-8") as handle:
                 handle.write(content)
@@ -99,7 +187,7 @@ def main():
 
     try:
         with open(PALETTES_FILE, encoding="utf-8") as handle:
-            palette = json.load(handle).get(theme)
+            palette = json.load(handle)["palettes"].get(theme)
     except (OSError, ValueError):
         palette = None
 

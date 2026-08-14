@@ -18,7 +18,7 @@ RowLayout {
 
         implicitWidth: dateText.implicitWidth + 10
         implicitHeight: 22
-        radius: 0
+        radius: Theme.radius
         color: dateArea.containsMouse || calendarWindow.shown ? Theme.surface0 : "transparent"
 
         Text {

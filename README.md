@@ -38,6 +38,12 @@ Log out and back in when it finishes.
 
 `catppuccin-mocha` · `monochrome` · `gruvbox` · `nord` · `everforest`
 
+Plus **custom themes** — `frutiger-aero` — which deliberately break the house
+rules (square corners, flat surfaces) with rounded corners, gloss and
+translucency. They live in the same palettes file, marked `"custom": true` with
+a `style` block, and the theme picker keeps them in their own section: `←` from
+the theme list, `→` for fonts.
+
 Every colour lives in one file: `config/quickshell/palettes.json`. Adding a
 theme means adding one block there — the bar, GTK 3/4, Qt/Kvantum, KDE apps,
 kitty, dunst, btop, Hyprland window borders, Zen Browser, YouTube Music Desktop

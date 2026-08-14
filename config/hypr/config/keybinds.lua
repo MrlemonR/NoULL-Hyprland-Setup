@@ -64,7 +64,10 @@ hl.bind(mainMod .. " + SHIFT + E",  hl.dsp.exec_cmd("kitty -e yazi"))
 -- colour page with the hex (also copied to the clipboard). Was gcolor3.
 hl.bind(mainMod .. " + ALT + X",    hl.dsp.exec_cmd(os.getenv("HOME") .. "/.local/bin/qs-color pick"))
 hl.bind(mainMod .. " + C",          hl.dsp.exec_cmd("claude-desktop"))
-hl.bind(mainMod .. " + M",          hl.dsp.exec_cmd("kitty -e noull-pm"))
+-- Absolute path: Hyprland's PATH has no ~/.local/bin (it is added by the shell
+-- rc, which a hotkey never sources), so a bare "noull-pm" made kitty exit at
+-- once. Same reason as qs-color above.
+hl.bind(mainMod .. " + M",          hl.dsp.exec_cmd("kitty -e " .. os.getenv("HOME") .. "/.local/bin/noull-pm"))
 ---------------------------
 ---- HARDWARE CONTROLS ----
 ---------------------------
@@ -142,6 +145,9 @@ hl.bind(mainMod .. " + K", hl.dsp.exec_cmd(os.getenv("HOME") .. "/.local/bin/qs-
 -- ============================================================
 
 hl.bind(mainMod .. " + SHIFT + Z",   hl.dsp.exec_cmd("qs -c topbar ipc call wallpaper toggle"))
+-- Settings screen. Slides up from the bottom like the launcher and the
+-- clipboard, which is the family it belongs to.
+hl.bind(mainMod .. " + Z",           hl.dsp.exec_cmd("qs -c topbar ipc call settings toggle"))
 hl.bind(mainMod .. " + CONTROL + Z", hl.dsp.exec_cmd("qs -c topbar ipc call theme toggle"))
 -- Control centre — the same panel the running cat in the bar opens
 hl.bind(mainMod .. " + CONTROL + C", hl.dsp.exec_cmd("qs -c topbar ipc call controlCenter toggle"))

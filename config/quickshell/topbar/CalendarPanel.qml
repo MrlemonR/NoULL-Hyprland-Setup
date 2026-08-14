@@ -183,10 +183,18 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        color: Theme.base
+        color: Theme.panelColor
         border.color: Theme.surface0
-        border.width: 1
-        radius: 0
+        border.width: Theme.borderWidth
+        radius: Theme.radiusPanel
+
+        // Aero sheen. Inert on the standard themes — Theme.gloss is 0 — and
+        // declared first so it sits under the content rather than over it.
+        GlossOverlay {
+            anchors.fill: parent
+            radius: parent.radius
+            midline: 0.3
+        }
         clip: true
 
         // ================= Sayfa 1: ay ızgarası =================
@@ -397,7 +405,7 @@ Item {
 
                             width: 43
                             height: 38
-                            radius: 0
+                            radius: Theme.radius
                             color: cellArea.containsMouse ? Theme.surface0 : "transparent"
                             border.width: cell.isToday ? 1 : 0
                             border.color: Theme.blue
@@ -424,7 +432,7 @@ Item {
                                 anchors.bottomMargin: 6
                                 width: 4
                                 height: 4
-                                radius: 0
+                                radius: Theme.radiusUpTo(4)
                                 visible: cell.noteCount > 0
                                 color: Theme.yellow
                             }
@@ -473,7 +481,7 @@ Item {
                                 return Theme.mauve
                             return monthArea.containsMouse ? Theme.surface0 : "transparent"
                         }
-                        border.width: 1
+                        border.width: Theme.borderWidth
                         border.color: Theme.surface0
 
                         Text {
@@ -531,7 +539,7 @@ Item {
                                 return Theme.mauve
                             return yearArea.containsMouse ? Theme.surface0 : "transparent"
                         }
-                        border.width: 1
+                        border.width: Theme.borderWidth
                         border.color: Theme.surface0
 
                         Text {
@@ -688,7 +696,7 @@ Item {
                         width: cancelText.implicitWidth + 24
                         height: 28
                         color: cancelArea.containsMouse ? Theme.surface0 : "transparent"
-                        border.width: 1
+                        border.width: Theme.borderWidth
                         border.color: Theme.surface1
 
                         Text {
@@ -714,7 +722,7 @@ Item {
                         width: confirmText.implicitWidth + 24
                         height: 28
                         color: confirmArea.containsMouse ? Theme.red : Theme.dangerBg
-                        border.width: 1
+                        border.width: Theme.borderWidth
                         border.color: Theme.red
 
                         Text {

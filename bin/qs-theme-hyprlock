@@ -33,14 +33,14 @@ while (( $# )); do
 done
 
 BIN="$HOME/.local/bin"
-[[ -x "$BIN/qs-palette" ]] || { echo "hyprlock: qs-palette bulunamadı, atlandı"; exit 0; }
+[[ -x "$BIN/qs-config" ]] || { echo "hyprlock: qs-config bulunamadı, atlandı"; exit 0; }
 
 if [[ -z "$THEME" ]]; then
-    STATE="$HOME/.config/quickshell/theme.txt"
-    THEME="$( [[ -r "$STATE" ]] && tr -d '[:space:]' < "$STATE" || echo catppuccin-mocha )"
+    STATE="$HOME/.config/quickshell/lemonrice.json"
+    THEME="$( [[ -r "$STATE" ]] && "$HOME/.local/bin/qs-config" theme || echo catppuccin-mocha )"
 fi
 
-if ! eval "$("$BIN/qs-palette" env "$THEME" 2>/dev/null)"; then
+if ! eval "$("$BIN/qs-config" env "$THEME" 2>/dev/null)"; then
     echo "hyprlock: '$THEME' için palet yok, atlandı"; exit 0
 fi
 
@@ -151,9 +151,8 @@ chmod +x "$DATESH"
 # The lock screen follows qs-font like everything else. Guessing from whichever
 # TTF happened to be found (what this did before) meant hyprlock kept its own
 # font while the rest of the system moved.
-FONT_CONF="$HOME/.config/quickshell/font.conf"
-FONT_NAME="$(sed -n 's/^[[:space:]]*mono[[:space:]]*=[[:space:]]*//p' "$FONT_CONF" 2>/dev/null | head -1)"
-FONT_WEIGHT="$(sed -n 's/^[[:space:]]*weight[[:space:]]*=[[:space:]]*//p' "$FONT_CONF" 2>/dev/null | head -1)"
+FONT_NAME="$("$HOME/.local/bin/qs-config" get font.mono 2>/dev/null)"
+FONT_WEIGHT="$("$HOME/.local/bin/qs-config" get font.weight 2>/dev/null)"
 [[ -z "$FONT_NAME" ]] && FONT_NAME="JetBrainsMono Nerd Font"
 
 # fontconfig is the authority on whether it can actually be drawn

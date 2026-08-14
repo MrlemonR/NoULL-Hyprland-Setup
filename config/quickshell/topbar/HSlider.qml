@@ -83,7 +83,7 @@ Item {
                         anchors.verticalCenter: parent.verticalCenter
                         width: parent.width
                         height: segment.isActive ? 16 : 8
-                        radius: 0
+                        radius: Theme.radiusUpTo(8)
                         color: {
                             if (segment.isActive)
                                 return root.activeColor

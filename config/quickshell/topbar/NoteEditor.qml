@@ -72,8 +72,16 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        color: Theme.base
-        radius: 0
+        color: Theme.panelColor
+        radius: Theme.radiusPanel
+
+        // Aero sheen. Inert on the standard themes — Theme.gloss is 0 — and
+        // declared first so it sits under the content rather than over it.
+        GlossOverlay {
+            anchors.fill: parent
+            radius: parent.radius
+            midline: 0.3
+        }
 
         // ---------------- Başlık ----------------
         Item {
@@ -212,7 +220,7 @@ Item {
             anchors.rightMargin: 16
             height: 74
             color: Theme.mantle
-            border.width: 1
+            border.width: Theme.borderWidth
             border.color: noteText.activeFocus ? Theme.mauve : Theme.surface0
 
             // Uzun notlarda kaydırılabilsin diye TextEdit bir Flickable içinde
@@ -290,7 +298,7 @@ Item {
                 width: 46
                 height: 46
                 color: addArea.containsMouse ? Theme.surface0 : Theme.mantle
-                border.width: 1
+                border.width: Theme.borderWidth
                 border.color: addArea.containsMouse ? Theme.mauve : Theme.surface0
 
                 Text {
@@ -329,7 +337,7 @@ Item {
                         width: 46
                         height: 46
                         color: Theme.mantle
-                        border.width: 1
+                        border.width: Theme.borderWidth
                         border.color: Theme.surface0
                         clip: true
 
@@ -463,7 +471,7 @@ Item {
                     width: chipRow.implicitWidth + 14
                     height: 22
                     color: Theme.mantle
-                    border.width: 1
+                    border.width: Theme.borderWidth
                     border.color: Theme.surface0
 
                     Row {

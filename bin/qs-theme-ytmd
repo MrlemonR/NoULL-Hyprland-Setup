@@ -31,17 +31,17 @@ CONFIG = os.path.expanduser("~/.config/YouTube Music Desktop App/config.json")
 CSS_DIR = os.path.expanduser("~/.config/quickshell/generated")
 CSS_PATH = os.path.join(CSS_DIR, "ytmdesktop.css")
 
-PALETTES_FILE = os.path.expanduser("~/.config/quickshell/palettes.json")
+PALETTES_FILE = os.path.expanduser("~/.config/quickshell/lemonrice.json")
 
 
 def load_palette(theme):
-    """Renkler tek kaynaktan: ~/.config/quickshell/palettes.json (qs-palette).
+    """Renkler tek kaynaktan: ~/.config/quickshell/lemonrice.json (qs-config).
 
     Yeni tema eklerken burayı değil o dosyayı düzenlemek yeterli.
     """
     try:
         with open(PALETTES_FILE, encoding="utf-8") as handle:
-            raw = json.load(handle).get(theme)
+            raw = json.load(handle)["palettes"].get(theme)
     except (OSError, ValueError):
         return None
     if raw is None:
@@ -152,6 +152,97 @@ tp-yt-iron-dropdown .dropdown-content,
 ytmusic-menu-popup-renderer {{
   background: {p['surface0']} !important;
   color: {p['text']} !important;
+}}
+
+/* --- Yazı rengi -------------------------------------------------------
+   --yt-spec-text-* değişkenleri yukarıda doğru ayarlanıyor ama liste ve
+   başlık bileşenleri yazıyı BEYAZA sabitliyor: arkalarındaki kapak resmi
+   katmanının koyu olduğunu varsayıyorlar. Beş tema da koyu olduğu sürece
+   sorun yoktu; ilk açık palette bütün şarkı adları okunmaz hale geldi.
+
+   `color: inherit` hilesi burada bilerek: sabit beyazı ezmenin tek yolu
+   çocukları kapsayıcıdan miras almaya zorlamak. İkincil satırlar hemen
+   altında tekrar soluklaştırılıyor, yoksa her şey tek tonda kalıyor. */
+ytmusic-responsive-list-item-renderer,
+ytmusic-player-queue-item,
+ytmusic-detail-header-renderer,
+ytmusic-editable-playlist-detail-header-renderer,
+ytmusic-responsive-header-renderer,
+ytmusic-immersive-header-renderer,
+ytmusic-carousel-shelf-renderer,
+ytmusic-two-row-item-renderer,
+ytmusic-guide-entry-renderer,
+ytmusic-guide-section-renderer,
+ytmusic-guide-renderer,
+ytmusic-player-bar,
+ytmusic-player-bar .content-info-wrapper,
+ytmusic-player-bar .middle-controls,
+ytmusic-player-bar .time-info,
+ytmusic-player-page,
+ytmusic-tab-renderer,
+tp-yt-paper-tab,
+ytmusic-toggle-button-renderer,
+ytmusic-player-queue-item,
+#tabsContent,
+#automix-contents,
+ytmusic-message-renderer,
+ytmusic-menu-navigation-item-renderer,
+ytmusic-menu-service-item-renderer,
+ytmusic-settings-options-renderer,
+ytmusic-multi-page-menu-renderer {{
+  color: {p['text']} !important;
+}}
+
+ytmusic-responsive-list-item-renderer *,
+ytmusic-player-queue-item *,
+ytmusic-detail-header-renderer *,
+ytmusic-editable-playlist-detail-header-renderer *,
+ytmusic-responsive-header-renderer *,
+ytmusic-immersive-header-renderer *,
+ytmusic-two-row-item-renderer *,
+ytmusic-guide-entry-renderer *,
+tp-yt-paper-tab *,
+ytmusic-player-bar .content-info-wrapper *,
+ytmusic-player-bar .title,
+ytmusic-player-queue-item *,
+ytmusic-menu-navigation-item-renderer *,
+ytmusic-menu-service-item-renderer *,
+ytmusic-multi-page-menu-renderer * {{
+  color: inherit !important;
+}}
+
+/* Oynatıcı sayfasının sekmeleri (SIRADAKİ / ŞARKI SÖZLERİ / …): seçili olan
+   tam renk, diğerleri soluk. Kendi opacity'lerini de düşürdükleri için
+   sadece renk vermek yetmiyor. */
+tp-yt-paper-tab {{
+  opacity: 1 !important;
+  color: {p['subtext']} !important;
+}}
+
+tp-yt-paper-tab[aria-selected="true"],
+tp-yt-paper-tab.iron-selected {{
+  color: {p['text']} !important;
+}}
+
+ytmusic-responsive-list-item-renderer .secondary-flex-columns,
+ytmusic-responsive-list-item-renderer .secondary-flex-columns *,
+ytmusic-responsive-list-item-renderer .flex-column.style-scope:not(:first-child),
+ytmusic-two-row-item-renderer .subtitle,
+ytmusic-two-row-item-renderer .subtitle *,
+ytmusic-detail-header-renderer .subtitle,
+ytmusic-detail-header-renderer .subtitle *,
+ytmusic-player-queue-item .byline,
+ytmusic-player-queue-item .byline *,
+ytmusic-player-bar .byline,
+ytmusic-player-bar .byline *,
+ytmusic-player-bar .time-info,
+ytmusic-guide-entry-renderer .subtitle,
+ytmusic-guide-entry-renderer .subtitle *,
+ytmusic-responsive-header-renderer .metadata,
+ytmusic-responsive-header-renderer .metadata *,
+ytmusic-editable-playlist-detail-header-renderer .subtitle,
+ytmusic-editable-playlist-detail-header-renderer .second-subtitle {{
+  color: {p['subtext']} !important;
 }}
 
 ::-webkit-scrollbar {{ width: 10px; height: 10px; }}

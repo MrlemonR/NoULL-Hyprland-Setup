@@ -244,10 +244,18 @@ PanelWindow {
         anchors.centerIn: parent
         width: panel.rowWidth + panel.padding * 2
         height: panel.padding + panel.cardHeight + 12 + captionColumn.height + panel.padding
-        color: Theme.base
+        color: Theme.panelColor
         border.color: Theme.surface0
-        border.width: 1
-        radius: 0
+        border.width: Theme.borderWidth
+        radius: Theme.radiusPanel
+
+        // Aero sheen. Inert on the standard themes — Theme.gloss is 0 — and
+        // declared first so it sits under the content rather than over it.
+        GlossOverlay {
+            anchors.fill: parent
+            radius: parent.radius
+            midline: 0.3
+        }
 
         opacity: 0
         scale: 0.97
@@ -293,7 +301,7 @@ PanelWindow {
                                         : (cardArea.containsMouse ? Theme.hover : Theme.mantle)
                     border.color: card.current ? Theme.blue : "transparent"
                     border.width: card.current ? 2 : 0
-                    radius: 0
+                    radius: Theme.radius
 
                     Behavior on color {
                         ColorAnimation { duration: 90 }
@@ -322,7 +330,7 @@ PanelWindow {
                         anchors.fill: parent
                         visible: !cardIcon.visible
                         color: Theme.surface1
-                        radius: 0
+                        radius: Theme.radius
 
                         Text {
                             anchors.centerIn: parent
@@ -363,7 +371,7 @@ PanelWindow {
                     width: wsLabel.implicitWidth + 10
                     height: 16
                     color: card.current ? Theme.blue : Theme.surface1
-                    radius: 0
+                    radius: Theme.radiusUpTo(16)
 
                     Text {
                         id: wsLabel
@@ -434,7 +442,7 @@ PanelWindow {
     ParallelAnimation {
         id: openAnim
 
-        NumberAnimation { target: backdrop; property: "opacity"; to: 0.45; duration: 90; easing.type: Easing.OutQuad }
+        NumberAnimation { target: backdrop; property: "opacity"; to: Theme.backdropOpacity(0.45); duration: 90; easing.type: Easing.OutQuad }
         NumberAnimation { target: panel; property: "opacity"; to: 1; duration: 90; easing.type: Easing.OutQuad }
         NumberAnimation { target: panel; property: "scale"; to: 1; duration: 130; easing.type: Easing.OutCubic }
     }
@@ -443,7 +451,7 @@ PanelWindow {
         id: closeAnim
 
         ParallelAnimation {
-            NumberAnimation { target: backdrop; property: "opacity"; to: 0; duration: 90; easing.type: Easing.InQuad }
+            NumberAnimation { target: backdrop; property: "opacity"; to: Theme.backdropOpacity(0); duration: 90; easing.type: Easing.InQuad }
             NumberAnimation { target: panel; property: "opacity"; to: 0; duration: 80; easing.type: Easing.InQuad }
             NumberAnimation { target: panel; property: "scale"; to: 0.97; duration: 90; easing.type: Easing.InQuad }
         }

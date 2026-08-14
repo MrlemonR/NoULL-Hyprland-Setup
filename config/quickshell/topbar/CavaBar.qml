@@ -36,7 +36,7 @@ Item {
                 Rectangle {
                     anchors.bottom: parent.bottom
                     width: parent.width
-                    radius: 0
+                    radius: Theme.radiusUpTo(root.barWidth)
 
                     // 2px floor so the strip stays a strip in silence instead
                     // of vanishing and shifting the workspaces sideways.

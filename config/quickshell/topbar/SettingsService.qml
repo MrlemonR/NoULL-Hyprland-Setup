@@ -23,12 +23,22 @@ Singleton {
     id: root
 
     readonly property string script: Quickshell.env("HOME") + "/.local/bin/qs-settings"
-    readonly property string settingsPath: Quickshell.env("HOME") + "/.config/quickshell/settings.json"
+    readonly property string configPath: Quickshell.env("HOME") + "/.config/quickshell/lemonrice.json"
     readonly property string dnsScript: Quickshell.env("HOME") + "/.config/quickshell/scripts/dns-toggle.sh"
 
     // ---------------- Stored toggles ----------------
 
     readonly property var keys: ["animations", "blur", "shadows", "transparency", "gaps"]
+
+    // Sliders. Ranges are duplicated from qs-settings on purpose — the script
+    // clamps whatever arrives, so this copy only decides how far the handle
+    // travels and cannot let a bad value through.
+    readonly property var ranges: ({
+        animationSpeed:     { min: 0.25, max: 4,  step: 0.25, def: 1 },
+        blurAmount:         { min: 1,    max: 20, step: 1,    def: 5 },
+        transparencyAmount: { min: 0.5,  max: 1,  step: 0.01, def: 0.95 },
+        gapsAmount:         { min: 0,    max: 40, step: 1,    def: 8 }
+    })
 
     property var values: ({})
 
@@ -45,8 +55,17 @@ Singleton {
 
     // Absent means on: a fresh install has no settings.json and should look
     // normal, not like everything was switched off.
+    //
+    // The exception is anything that is not part of the normal look. Aero glass
+    // is opt-in, so "no opinion recorded" has to mean off — inheriting the
+    // default-on rule would have every fresh install claim it was enabled.
+    readonly property var defaultOff: ["aeroGlass"]
+
     function enabled(key) {
-        return root.values[key] !== false
+        const value = root.values[key]
+        if (typeof value === "boolean")
+            return value
+        return root.defaultOff.indexOf(key) < 0
     }
 
     function set(key, value) {
@@ -64,10 +83,33 @@ Singleton {
         root.set(key, !root.enabled(key))
     }
 
+    /// A slider's current value, falling back to the range's default.
+    function number(key) {
+        const value = root.values[key]
+        if (typeof value === "number")
+            return value
+        const range = root.ranges[key]
+        return range ? range.def : 0
+    }
+
+    /// Sliders fire continuously while dragging and every write costs a
+    /// `hyprctl reload`, so the value is shown at once and pushed once the
+    /// handle settles. `commit` is what the release handler calls.
+    function preview(key, value) {
+        const next = Object.assign({}, root.values)
+        next[key] = value
+        root.values = next
+    }
+
+    function commit(key, value) {
+        root.preview(key, value)
+        Quickshell.execDetached([root.script, "set", key, String(value)])
+    }
+
     FileView {
         id: settingsFile
 
-        path: root.settingsPath
+        path: root.configPath
         preload: true
         watchChanges: true
         printErrors: false
@@ -78,12 +120,12 @@ Singleton {
                 return
             try {
                 const parsed = JSON.parse(raw)
-                if (parsed && typeof parsed === "object")
-                    root.values = parsed
+                if (parsed && typeof parsed.settings === "object")
+                    root.values = parsed.settings
             } catch (e) {
                 // Leave the last good values in place; qs-settings refuses to
                 // write over a broken file, so it is a hand edit to fix.
-                console.warn("SettingsService: settings.json unreadable —", e)
+                console.warn("SettingsService: lemonrice.json unreadable —", e)
             }
         }
 

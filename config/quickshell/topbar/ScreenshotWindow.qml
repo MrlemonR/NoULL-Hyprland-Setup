@@ -277,10 +277,18 @@ PanelWindow {
         anchors.centerIn: parent
         width: 520
         height: 190
-        color: Theme.base
+        color: Theme.panelColor
         border.color: Theme.surface0
-        border.width: 1
-        radius: 0
+        border.width: Theme.borderWidth
+        radius: Theme.radiusPanel
+
+        // Aero sheen. Inert on the standard themes — Theme.gloss is 0 — and
+        // declared first so it sits under the content rather than over it.
+        GlossOverlay {
+            anchors.fill: parent
+            radius: parent.radius
+            midline: 0.3
+        }
         visible: root.stage === "pick"
 
         opacity: 0
@@ -318,8 +326,15 @@ PanelWindow {
 
                     width: 148
                     height: 92
-                    color: modeArea.containsMouse ? Theme.surface0 : Theme.mantle
-                    border.width: 1
+                    color: "transparent"
+                    
+                    ButtonSurface {
+                        anchors.fill: parent
+                        radius: parent.radius
+                        hovered: modeArea.containsMouse
+                        restingColor: Theme.mantle
+                    }
+                    border.width: Theme.borderWidth
                     border.color: modeArea.containsMouse ? Theme.mauve : Theme.surface0
 
                     Behavior on color {
@@ -384,10 +399,18 @@ PanelWindow {
         anchors.centerIn: parent
         width: 560
         height: 460
-        color: Theme.base
+        color: Theme.panelColor
         border.color: Theme.surface0
-        border.width: 1
-        radius: 0
+        border.width: Theme.borderWidth
+        radius: Theme.radiusPanel
+
+        // Aero sheen. Inert on the standard themes — Theme.gloss is 0 — and
+        // declared first so it sits under the content rather than over it.
+        GlossOverlay {
+            anchors.fill: parent
+            radius: parent.radius
+            midline: 0.3
+        }
         visible: root.stage === "confirm"
 
         opacity: 0
@@ -416,7 +439,7 @@ PanelWindow {
             anchors.margins: 16
             height: 300
             color: Theme.mantle
-            border.width: 1
+            border.width: Theme.borderWidth
             border.color: Theme.surface0
             clip: true
 
@@ -455,7 +478,7 @@ PanelWindow {
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: "Yes — save to folder"
-                        color: yesArea.containsMouse ? Theme.crust : Theme.text
+                        color: yesArea.containsMouse ? Theme.textOn(Theme.green) : Theme.text
                         font.pixelSize: 12
                         font.bold: true
                     }
@@ -463,7 +486,7 @@ PanelWindow {
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: "Screenshots + clipboard"
-                        color: yesArea.containsMouse ? Theme.crust : Theme.overlay0
+                        color: yesArea.containsMouse ? Theme.textOn(Theme.green) : Theme.overlay0
                         font.pixelSize: 9
                     }
                 }
@@ -481,7 +504,14 @@ PanelWindow {
             Rectangle {
                 width: 190
                 height: 40
-                color: noArea.containsMouse ? Theme.surface1 : Theme.surface0
+                color: "transparent"
+                
+                ButtonSurface {
+                    anchors.fill: parent
+                    radius: parent.radius
+                    hovered: noArea.containsMouse
+                    restingColor: Theme.surface0
+                }
 
                 Behavior on color {
                     ColorAnimation { duration: 110 }

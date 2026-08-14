@@ -10,6 +10,16 @@ yamalamak gerekiyor — bu da root istiyor.
     sudo qs-ytmd-titlebar            # etkin temaya göre yamalar
     sudo qs-ytmd-titlebar monochrome # belirli bir temaya göre
     sudo qs-ytmd-titlebar --restore  # orijinal paketi geri koyar
+    sudo qs-ytmd-titlebar --install  # root yardımcı + NOPASSWD kuralı
+    sudo qs-ytmd-titlebar --uninstall
+    qs-ytmd-titlebar --if-stale      # yalnızca tema değiştiyse yamalar
+
+--if-stale + --install ikilisi, uygulamanın HER AÇILIŞINDA başlık çubuğunun
+doğru olmasını sağlıyor: qs-ytmd sarmalayıcısı önce bunu çalıştırıp sonra
+uygulamayı exec ediyor. Yama uygulama başlamadan önce bitmek zorunda, çünkü
+Electron paketi açılışta okuyor — açıldıktan sonra yamalamak bir sonraki
+açılışa kalırdı. Ayrıca uygulama güncellemesi yamayı sildiği için bu, elle
+hatırlamaya gerek bırakmıyor.
 
 DİKKAT:
   * Uygulama güncellenince paket değişir ve yama uçar; güncellemeden sonra
@@ -24,10 +34,17 @@ import os
 import re
 import shutil
 import struct
+import subprocess
 import sys
 
 ASAR = "/opt/ytmdesktop/resources/app.asar"
 BACKUP = ASAR + ".qs-backup"
+# Hangi temaya göre yamalandığı. --if-stale bunu okuyup gereksiz yere paketi
+# yeniden kurmaktan kaçınıyor; herkes okuyabilsin diye paketin yanında.
+MARKER = ASAR + ".qs-theme"
+
+HELPER = "/usr/local/bin/qs-ytmd-titlebar"
+SUDOERS = "/etc/sudoers.d/lemonrice-ytmd-titlebar"
 
 def config_home():
     """sudo ile çalışırken HOME /root oluyor; asıl kullanıcıya bak."""
@@ -37,17 +54,17 @@ def config_home():
     return os.path.expanduser("~")
 
 
-PALETTES_FILE = os.path.join(config_home(), ".config/quickshell/palettes.json")
+PALETTES_FILE = os.path.join(config_home(), ".config/quickshell/lemonrice.json")
 
 
 def load_palette(theme):
-    """Renkler tek kaynaktan: ~/.config/quickshell/palettes.json (qs-palette).
+    """Renkler tek kaynaktan: ~/.config/quickshell/lemonrice.json (qs-config).
 
     Yeni tema eklerken burayı değil o dosyayı düzenlemek yeterli.
     """
     try:
         with open(PALETTES_FILE, encoding="utf-8") as handle:
-            raw = json.load(handle).get(theme)
+            raw = json.load(handle)["palettes"].get(theme)
     except (OSError, ValueError):
         return None
     if raw is None:
@@ -56,6 +73,7 @@ def load_palette(theme):
         return {
             "bar": raw["mantle"], "text": raw["text"],
             "muted": raw["subtext0"], "hover": raw["surface0"],
+            "accent": raw["mauve"],
         }
     except KeyError:
         return None
@@ -120,6 +138,28 @@ def patch_main(text, palette):
     )
 
 
+def patch_splash(text, palette):
+    """Uygulamanın KENDİ açılış ekranı (kırmızı düğme + yükleme çubukları).
+
+    Bu, web görünümünden önce çizilen Vue bileşeni; customCSSPath oraya
+    enjekte edilmiyor, yani qs-theme-ytmd'nin ürettiği CSS ona ulaşmıyor.
+    Başlık çubuğuyla aynı sebeple paketin içinde: renderer/assets altındaki
+    main_window CSS'inde üç sabit renk var — zemin, durum yazısı, çubuklar.
+    """
+    p = palette
+    replacements = [
+        (r"background-color:#000\b", "background-color:" + p["bar"]),
+        (r"color:#969696\b", "color:" + p["muted"]),
+        # Yükleme çubukları beyaz; açık zeminde görünmez oluyorlar.
+        (r"background-color:#fff\b", "background-color:" + p["accent"]),
+    ]
+    hits = 0
+    for pattern, value in replacements:
+        text, count = re.subn(pattern, value, text)
+        hits += count
+    return text, hits
+
+
 def patch_css(text, palette):
     p = palette
     # Küçültülmüş CSS'te bu renkler yalnızca başlık çubuğu kuralında geçiyor
@@ -138,19 +178,86 @@ def patch_css(text, palette):
 
 
 def current_theme():
-    path = os.path.join(config_home(), ".config/quickshell/theme.txt")
+    path = os.path.join(config_home(), ".config/quickshell/lemonrice.json")
     try:
         with open(path, encoding="utf-8") as handle:
+            return json.load(handle).get("theme") or "catppuccin-mocha"
+    except (OSError, ValueError):
+        return "catppuccin-mocha"
+
+
+def marker_theme():
+    try:
+        with open(MARKER, encoding="utf-8") as handle:
             return handle.read().strip()
     except OSError:
-        return "catppuccin-mocha"
+        return ""
+
+
+def install():
+    """Root kopya + yalnızca --if-stale'e izin veren NOPASSWD kuralı.
+
+    DİKKAT: kural /usr/local/bin kopyasını göstermek ZORUNDA. ~/.local/bin
+    kullanıcı tarafından yazılabilir, oraya işaret eden bir kural o dizine
+    dosya bırakabilen her şeye root vermek olurdu (qs-boot-windows'ta aynı
+    gerekçe yazılı).
+    """
+    self_path = os.path.realpath(__file__)
+    if os.geteuid() != 0:
+        sys.exit(f"ytmd-titlebar: --install root gerektiriyor -> sudo {self_path} --install")
+    if self_path == HELPER:
+        sys.exit("ytmd-titlebar: --install ~/.local/bin kopyasından çalıştırılmalı")
+
+    shutil.copy2(self_path, HELPER)
+    os.chown(HELPER, 0, 0)
+    os.chmod(HELPER, 0o755)
+
+    who = os.environ.get("SUDO_USER") or "%wheel"
+    rule = f"{who} ALL=(root) NOPASSWD: {HELPER} --if-stale\n"
+    tmp = SUDOERS + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as handle:
+        handle.write(rule)
+    os.chmod(tmp, 0o440)
+    # Bozuk bir sudoers dosyası sudo'yu tamamen kilitler; önce doğrula.
+    if subprocess.run(["visudo", "-c", "-f", tmp],
+                      stdout=subprocess.DEVNULL).returncode != 0:
+        os.unlink(tmp)
+        sys.exit("ytmd-titlebar: sudoers kuralı doğrulanamadı, yazılmadı")
+    os.replace(tmp, SUDOERS)
+    print(f"ytmd-titlebar: {HELPER} + {SUDOERS} kuruldu")
+
+
+def uninstall():
+    if os.geteuid() != 0:
+        sys.exit("ytmd-titlebar: --uninstall root gerektiriyor")
+    for path in (SUDOERS, HELPER):
+        if os.path.exists(path):
+            os.unlink(path)
+            print(f"ytmd-titlebar: {path} silindi")
 
 
 def main():
     arg = sys.argv[1] if len(sys.argv) > 1 else ""
 
+    if arg == "--install":
+        install()
+        return
+    if arg == "--uninstall":
+        uninstall()
+        return
+
     if not os.path.isfile(ASAR):
         sys.exit(f"ytmd-titlebar: {ASAR} yok")
+
+    stale_only = arg == "--if-stale"
+    if stale_only:
+        arg = ""
+        # Paket güncellemesi yamayı siler ve yedeği de eskitir: asar yedekten
+        # yeniyse yeniden yamalamak gerekiyor, işaretçi ne derse desin.
+        fresh_package = (os.path.isfile(BACKUP)
+                         and os.path.getmtime(ASAR) > os.path.getmtime(BACKUP))
+        if marker_theme() == current_theme() and not fresh_package:
+            return
 
     if arg == "--restore":
         if not os.path.isfile(BACKUP):
@@ -184,7 +291,12 @@ def main():
         offset = int(node["offset"])
         content = data[offset:offset + node["size"]]
 
-        if re.search(r"TitleBar.*\.css$", name):
+        if re.search(r"main_window.*\.css$", name):
+            text, hits = patch_splash(content.decode("utf-8"), palette)
+            if hits:
+                content = text.encode("utf-8")
+                patched += hits
+        elif re.search(r"TitleBar.*\.css$", name):
             text, hits = patch_css(content.decode("utf-8"), palette)
             if hits:
                 content = text.encode("utf-8")
@@ -201,6 +313,8 @@ def main():
         sys.exit("ytmd-titlebar: başlık çubuğu CSS'i bulunamadı, dokunulmadı")
 
     write_asar(ASAR, header, files)
+    with open(MARKER, "w", encoding="utf-8") as handle:
+        handle.write(theme + "\n")
     print(f"ytmd-titlebar: {patched} renk yamandı ({theme}) — "
           "uygulamayı kapatıp aç")
 

@@ -12,9 +12,12 @@ require("config.misc")
 require("config.monitors")
 require("config.windowrules")
 require("config.keyring")
+
 -- Control centre toggles override the values above; runs after them so a
--- reload does not silently switch the effects back on. (see qs-settings)
-require("config.toggles")
 -- EN SONDA: performans modu açıksa yukarıdaki değerleri eziyor.
--- Böylece `hyprctl reload` modu iptal etmiyor. (bkz. qs-mode)
-require("config.perfmode")
+
+-- Efektler EN SONDA ve TEK dosyada: blur, opaklık, gölge, animasyon açma,
+-- boşluk, yuvarlaklık, kenarlık. Kendinden önceki her şeyi bilerek eziyor —
+-- `hyprctl reload` decorations/animations'ı geri yüklediğinde kullanıcının
+-- kapattıkları ve performans modu sessizce geri açılmasın diye.
+require("config.effects")

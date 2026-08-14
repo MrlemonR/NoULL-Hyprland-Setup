@@ -24,9 +24,9 @@ FREEZE="${XDG_CACHE_HOME:-$HOME/.cache}/qs-screenshot-freeze.png"
 OUTDIR="$HOME/Pictures/Screenshots"
 
 # Seçim katmanının rengi temaya göre
-THEME_FILE="$HOME/.config/quickshell/theme.txt"
+THEME_FILE="$HOME/.config/quickshell/lemonrice.json"
 SELECT_COLOR="#cba6f7"
-if [[ -r "$THEME_FILE" ]] && [[ "$(tr -d '[:space:]' < "$THEME_FILE")" == "monochrome" ]]; then
+if [[ -r "$THEME_FILE" ]] && [[ "$("$HOME/.local/bin/qs-config" theme)" == "monochrome" ]]; then
     SELECT_COLOR="#e0e0e0"
 fi
 

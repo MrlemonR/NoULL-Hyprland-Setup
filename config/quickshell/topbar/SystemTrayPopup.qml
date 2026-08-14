@@ -5,6 +5,13 @@ import Quickshell.Services.SystemTray
 PopupWindow {
     id: root
 
+    // The window under the panel must not paint: a PopupWindow defaults to an
+    // opaque background, so a rounded Rectangle inside it sits on a square
+    // fill and the corners read as sharp. Every PanelWindow here already
+    // does this; the three popups were the ones that never needed it while
+    // every corner was square anyway.
+    color: "transparent"
+
     // Dışarı tıklayınca popup otomatik kapansın
     grabFocus: true
 
@@ -13,8 +20,16 @@ PopupWindow {
 
     Rectangle {
         anchors.fill: parent
-        radius: 0
-        color: Theme.base
+        radius: Theme.radiusPanel
+
+        // Aero sheen. Inert on the standard themes — Theme.gloss is 0 — and
+        // declared first so it sits under the content rather than over it.
+        GlossOverlay {
+            anchors.fill: parent
+            radius: parent.radius
+            midline: 0.3
+        }
+        color: Theme.panelColor
 
         Row {
             id: trayRow

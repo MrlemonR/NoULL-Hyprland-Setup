@@ -24,6 +24,8 @@ ShellRoot {
     // Tema seçici (Super+Ctrl+Z)
     ThemeWindow {}
 
+
+    SettingsWindow {}
     // Ekran görüntüsü arayüzü (Super+Shift+S)
     ScreenshotWindow {}
 

@@ -1,0 +1,206 @@
+#!/usr/bin/env python3
+"""Tek yapılandırma dosyası: ~/.config/quickshell/lemonrice.json
+
+Renkler de ayarlar da burada. Eskiden beş dosyaya dağılmıştı (palettes.json,
+theme.txt, settings.json, bar.json, font.conf) ve her biri kendi okuyucusunu
+taşıyordu — `load_palette` fonksiyonunun altı ayrı kopyası vardı. Artık tek
+dosya, tek erişim noktası.
+
+    qs-config get <yol>              -> tek değer   (yol: settings.blur)
+    qs-config set <yol> <değer>      -> yazar (kilitli), on/off/sayı/metin
+    qs-config json [<yol>]           -> alt ağacı JSON olarak
+    qs-config themes [--custom|--standard]
+    qs-config palette [<tema>]       -> paletin tamamı JSON
+    qs-config style [<tema>]         -> paletin style bloğu
+    qs-config env [<tema>]           -> BASE=… MAUVE=… (bash: eval "$(...)")
+
+Tema adı verilmezse etkin tema kullanılıyor.
+
+TASARIM NOTLARI
+
+* Yazan tek şey bu script. Quickshell ve Hyprland dosyayı yalnızca OKUYOR ve
+  izliyor, yani yazma döngüsü kurulamıyor.
+* Yazma `flock` ile serileştiriliyor. Oku-değiştir-yaz iki kez üst üste
+  gelirse dosyanın sonuna ikinci bir kapanış parantezi ekleniyordu ve o andan
+  sonra her yazma bilerek reddediliyordu (gotcha #49).
+* Yerinde truncate + write; geçici dosya + rename DEĞİL. Bar bu yolu izliyor,
+  rename inode'u değiştirip izlemeyi koparıyor (gotcha #22 ile aynı sebep).
+* Yazmadan önce hedef doğrulanıyor: bilinmeyen bir yol yazılmıyor. Palet
+  bloğunun yanına ayar sızmasın diye.
+"""
+
+import fcntl
+import json
+import os
+import shlex
+import sys
+
+CONFIG = "lemonrice.json"
+
+
+def config_home():
+    """sudo ile çalışırken HOME /root oluyor; asıl kullanıcıya bak."""
+    user = os.environ.get("SUDO_USER")
+    if user and os.geteuid() == 0:
+        return os.path.expanduser("~" + user)
+    return os.path.expanduser("~")
+
+
+PATH = os.path.join(config_home(), ".config/quickshell", CONFIG)
+
+# Boolean ayarların varsayılanı AÇIK — dosyası olmayan taze kurulum normal
+# görünsün. İstisna: kendiliğinden gelmeyen, açıkça istenen efektler.
+DEFAULT_OFF = {"settings.aeroGlass", "bar.floating", "bar.transparent",
+               "bar.widgets.cava"}
+
+
+def load():
+    try:
+        with open(PATH, encoding="utf-8") as handle:
+            return json.load(handle)
+    except (OSError, ValueError) as exc:
+        sys.exit(f"qs-config: {PATH} okunamadı ({exc})")
+
+
+def dig(data, path):
+    """'settings.blur' -> data['settings']['blur']; yoksa None."""
+    node = data
+    for part in path.split("."):
+        if not isinstance(node, dict) or part not in node:
+            return None
+        node = node[part]
+    return node
+
+
+def active_theme(data):
+    return data.get("theme") or next(iter(data.get("palettes", {})), "")
+
+
+def palette_of(data, name=None):
+    name = name or active_theme(data)
+    found = data.get("palettes", {}).get(name)
+    if found is None:
+        sys.exit(f"qs-config: '{name}' diye bir tema yok")
+    return found
+
+
+def coerce(text):
+    """CLI'dan gelen metni JSON değerine çevir."""
+    lowered = text.lower()
+    if lowered in ("on", "true", "yes"):
+        return True
+    if lowered in ("off", "false", "no"):
+        return False
+    try:
+        number = float(text)
+        return int(number) if number == int(number) and "." not in text else number
+    except ValueError:
+        return text
+
+
+def write(path, value):
+    """Kilit altında oku-değiştir-yaz."""
+    os.makedirs(os.path.dirname(PATH), exist_ok=True)
+    lock_path = PATH + ".lock"
+    with open(lock_path, "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+
+        data = load()
+
+        parts = path.split(".")
+        node = data
+        for part in parts[:-1]:
+            if not isinstance(node.get(part), dict):
+                sys.exit(f"qs-config: '{path}' diye bir yol yok")
+            node = node[part]
+        if parts[-1] not in node:
+            sys.exit(f"qs-config: '{path}' diye bir anahtar yok "
+                     f"(mevcutlar: {', '.join(sorted(node))})")
+
+        node[parts[-1]] = value
+
+        with open(PATH, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+
+
+def main():
+    args = sys.argv[1:]
+    if not args:
+        sys.exit(__doc__)
+
+    command = args[0]
+    data = load()
+
+    if command == "get":
+        if len(args) < 2:
+            sys.exit("kullanım: qs-config get <yol>")
+        value = dig(data, args[1])
+        if value is None:
+            # Eksik boolean: varsayılan açık, listedekiler kapalı.
+            print("off" if args[1] in DEFAULT_OFF else "on")
+        elif isinstance(value, bool):
+            print("on" if value else "off")
+        elif isinstance(value, (dict, list)):
+            json.dump(value, sys.stdout, indent=2, ensure_ascii=False)
+            print()
+        else:
+            print(value)
+        return
+
+    if command == "set":
+        if len(args) < 3:
+            sys.exit("kullanım: qs-config set <yol> <değer>")
+        write(args[1], coerce(args[2]))
+        return
+
+    if command == "json":
+        node = dig(data, args[1]) if len(args) > 1 else data
+        json.dump(node, sys.stdout, indent=2, ensure_ascii=False)
+        print()
+        return
+
+    if command == "themes":
+        only = args[1] if len(args) > 1 else ""
+        for name, values in data.get("palettes", {}).items():
+            custom = bool(values.get("custom"))
+            if only == "--custom" and not custom:
+                continue
+            if only == "--standard" and custom:
+                continue
+            print(name)
+        return
+
+    if command in ("palette", "style"):
+        values = palette_of(data, args[1] if len(args) > 1 else None)
+        node = values.get("style", {}) if command == "style" else values
+        json.dump(node, sys.stdout, indent=2, ensure_ascii=False)
+        print()
+        return
+
+    if command == "env":
+        values = palette_of(data, args[1] if len(args) > 1 else None)
+        for key, value in values.items():
+            # style bir sözlük; str() onu shell'e Python repr'ı olarak
+            # sızdırırdı. Yapısal değerler `qs-config style` ile alınıyor.
+            if isinstance(value, (dict, list)):
+                continue
+            # base -> BASE, gtkThemeName -> GTK_THEME_NAME, dangerBg -> DANGER_BG
+            name = "".join(("_" + c if c.isupper() else c.upper()) for c in key)
+            if value is True:
+                text = "true"
+            elif value is False:
+                text = "false"
+            else:
+                text = str(value)
+            print(f"{name}={shlex.quote(text)}")
+        return
+
+    if command == "theme":
+        print(active_theme(data))
+        return
+
+    sys.exit(f"qs-config: bilinmeyen komut '{command}'")
+
+
+if __name__ == "__main__":
+    main()

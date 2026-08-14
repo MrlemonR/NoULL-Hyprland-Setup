@@ -11,7 +11,7 @@
 #   - duvar kağıdı süreçleri kapanıyor (mpvpaper ~250MB PSS, hyprpaper ~44MB)
 #     ve onları izleyen qs-wallpaper-watch de gereksiz kaldığı için duruyor,
 #   - blur, gölge, pencere saydamlığı, köşe yuvarlama, animasyonlar,
-#     özel workspace karartması kapanıyor (bkz. config/perfmode.lua),
+#     özel workspace karartması kapanıyor (bkz. config/effects.lua),
 #   - bar'ın yoklama aralıkları uzuyor (bkz. PerfMode.qml).
 #
 # Quickshell bar'ı BİLEREK açık kalıyor — kaynak kullanımını oradan izliyoruz.
@@ -23,7 +23,7 @@
 set -u
 
 STATE="${XDG_RUNTIME_DIR:-/run/user/1000}/qs-mode.performance"
-PERF_LUA="$HOME/.config/hypr/config/perfmode.lua"
+PERF_LUA="$HOME/.config/hypr/config/effects.lua"
 WALLPAPER_WATCH="$HOME/.local/bin/qs-wallpaper-watch"
 
 # Bar'a haber ver (kurulu değilse ya da kapalıysa sessiz geç)
@@ -32,7 +32,7 @@ notify_bar() {
 }
 
 perf_on() {
-    # DİKKAT: bayrak ÖNCE yazılıyor — perfmode.lua varlığına bakıyor.
+    # DİKKAT: bayrak ÖNCE yazılıyor — effects.lua varlığına bakıyor.
     touch "$STATE"
 
     pkill -x mpvpaper 2>/dev/null || true
@@ -40,7 +40,7 @@ perf_on() {
     # Duvar kağıdı yokken izlemenin de anlamı yok
     pkill -f "$WALLPAPER_WATCH" 2>/dev/null || true
 
-    # Ayarların tek kaynağı perfmode.lua; hyprctl reload sonrası da aynı
+    # Ayarların tek kaynağı effects.lua; hyprctl reload sonrası da aynı
     # dosya çalışıyor, böylece mod reload'da iptal olmuyor.
     hyprctl eval "dofile('$PERF_LUA')" >/dev/null
 
@@ -52,7 +52,7 @@ perf_off() {
     rm -f "$STATE"
 
     # decorations.lua + animations.lua'daki değerler geri gelsin.
-    # perfmode.lua da yeniden çalışıyor ama bayrak silindiği için etkisiz.
+    # effects.lua da yeniden çalışıyor ama bayrak silindiği için etkisiz.
     hyprctl reload >/dev/null
 
     if ! pgrep -x hyprpaper >/dev/null 2>&1; then

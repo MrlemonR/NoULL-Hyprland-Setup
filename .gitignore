@@ -35,3 +35,7 @@ config/hypr/hyprlock.conf
 config/hypr/hyprlock-bg.png
 config/hypr/hyprlock-avatar.png
 config/hypr/hyprlock-date.sh
+config/qt6ct/colors/qs-*
+config/qt6ct/qss/qs-*
+config/kitty/gloss.conf
+config/quickshell/lemonrice.json.lock

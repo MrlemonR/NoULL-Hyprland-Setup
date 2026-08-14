@@ -212,8 +212,16 @@ PanelWindow {
 
         width: (root.contentWidth - 2 * 8) / 3
         height: 72
-        radius: 0
-        color: tileArea.containsMouse ? Theme.surface0 : Theme.mantle
+        radius: Theme.radius
+        color: buttonSurface.color
+
+        ButtonSurface {
+            id: buttonSurface
+            anchors.fill: parent
+            radius: parent.radius
+            hovered: tileArea.containsMouse
+            restingColor: Theme.mantle
+        }
 
         Column {
             anchors.centerIn: parent
@@ -272,8 +280,15 @@ PanelWindow {
 
         width: root.contentWidth
         height: 30
-        radius: 0
-        color: rowArea.containsMouse ? Theme.hover : "transparent"
+        radius: Theme.radius
+        color: "transparent"
+
+        ButtonSurface {
+            anchors.fill: parent
+            radius: parent.radius
+            hovered: rowArea.containsMouse
+            restingColor: "transparent"
+        }
 
         Text {
             id: rowGlyph
@@ -321,7 +336,7 @@ PanelWindow {
             anchors.verticalCenter: parent.verticalCenter
             width: 28
             height: 14
-            radius: 0
+            radius: Theme.radius > 0 ? height / 2 : 0
             color: row.checked ? Theme.mauve : Theme.surface1
 
             Behavior on color {
@@ -331,7 +346,7 @@ PanelWindow {
             Rectangle {
                 width: 10
                 height: 10
-                radius: 0
+                radius: Theme.radius > 0 ? height / 2 : 0
                 y: 2
                 x: row.checked ? track.width - width - 2 : 2
                 color: row.checked ? Theme.base : Theme.subtext0
@@ -366,7 +381,7 @@ PanelWindow {
 
         width: root.contentWidth
         height: 28
-        radius: 0
+        radius: Theme.radius
         color: actionArea.containsMouse ? Theme.hover : "transparent"
 
         Text {
@@ -424,7 +439,7 @@ PanelWindow {
 
         width: root.contentWidth
         height: 32
-        radius: 0
+        radius: Theme.radius
         color: wideArea.containsMouse ? Theme.surface0 : Theme.mantle
 
         Row {
@@ -492,10 +507,18 @@ PanelWindow {
         width: root.panelWidth
         height: body.implicitHeight + 20
 
-        color: Theme.base
+        color: Theme.panelColor
         border.color: Theme.surface0
-        border.width: 1
-        radius: 0
+        border.width: Theme.borderWidth
+        radius: Theme.radiusPanel
+
+        // Aero sheen. Inert on the standard themes — Theme.gloss is 0 — and
+        // declared first so it sits under the content rather than over it.
+        GlossOverlay {
+            anchors.fill: parent
+            radius: parent.radius
+            midline: 0.3
+        }
 
         opacity: 0
         scale: 0.97
@@ -567,7 +590,7 @@ PanelWindow {
                         anchors.verticalCenter: parent.verticalCenter
                         width: 20
                         height: 20
-                        radius: 0
+                        radius: Theme.radius
                         color: backArea.containsMouse ? Theme.surface0 : "transparent"
 
                         Text {
@@ -971,7 +994,7 @@ PanelWindow {
                     Rectangle {
                         width: parent.width
                         height: 46
-                        radius: 0
+                        radius: Theme.radius
                         color: Theme.mantle
 
                         Text {
@@ -1039,7 +1062,7 @@ PanelWindow {
                                 return phonePage.entering ? 124 : 74
                             }
                             height: 24
-                            radius: 0
+                            radius: Theme.radius
                             color: {
                                 if (phonePage.entering)
                                     return Theme.surface0
@@ -1088,7 +1111,7 @@ PanelWindow {
                                 font.family: Theme.fontMono
                                 font.pixelSize: 11
                                 selectionColor: Theme.mauve
-                                selectedTextColor: Theme.crust
+                                selectedTextColor: Theme.textOn(Theme.mauve)
                                 clip: true
 
                                 // The phone shows a plain port; ip:port is
@@ -1244,9 +1267,9 @@ PanelWindow {
                     Rectangle {
                         width: parent.width
                         height: 84
-                        radius: 0
+                        radius: Theme.radius
                         color: colorPage.hex.length > 0 ? colorPage.hex : Theme.mantle
-                        border.width: 1
+                        border.width: Theme.borderWidth
                         border.color: Theme.surface0
 
                         Text {
@@ -1285,7 +1308,7 @@ PanelWindow {
 
                             width: colorPage.width
                             height: 22
-                            radius: 0
+                            radius: Theme.radius
                             color: valueArea.containsMouse ? Theme.hover : "transparent"
 
                             Text {
@@ -1376,9 +1399,9 @@ PanelWindow {
 
                                 width: 25
                                 height: 25
-                                radius: 0
+                                radius: Theme.radius
                                 color: swatch.modelData
-                                border.width: 1
+                                border.width: Theme.borderWidth
                                 border.color: {
                                     if (swatchArea.containsMouse)
                                         return Theme.mauve

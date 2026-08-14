@@ -5,6 +5,13 @@ import Quickshell.Services.Mpris
 PopupWindow {
     id: root
 
+    // The window under the panel must not paint: a PopupWindow defaults to an
+    // opaque background, so a rounded Rectangle inside it sits on a square
+    // fill and the corners read as sharp. Every PanelWindow here already
+    // does this; the three popups were the ones that never needed it while
+    // every corner was square anyway.
+    color: "transparent"
+
     property var player: null
     // Buraya kendi SVG dosya yollarını yaz (örn. "/home/kullanici/.config/quickshell/icons/play.svg")
     property string playIconPath: "file://" + Quickshell.env("HOME") + "/.config/quickshell/play.svg"
@@ -37,10 +44,18 @@ PopupWindow {
 
     Rectangle {
         anchors.fill: parent
-        radius: 0
-        color: Theme.base
+        radius: Theme.radiusPanel
+
+        // Aero sheen. Inert on the standard themes — Theme.gloss is 0 — and
+        // declared first so it sits under the content rather than over it.
+        GlossOverlay {
+            anchors.fill: parent
+            radius: parent.radius
+            midline: 0.3
+        }
+        color: Theme.panelColor
         border.color: Theme.surface0
-        border.width: 1
+        border.width: Theme.borderWidth
 
         Item {
             anchors.fill: parent
@@ -61,7 +76,7 @@ PopupWindow {
 
                     width: 52
                     height: 52
-                    radius: 0
+                    radius: Theme.radius
                     color: Theme.surface0
                     clip: true
                     anchors.left: parent.left
@@ -98,17 +113,28 @@ PopupWindow {
                     Rectangle {
                         width: 28
                         height: 28
-                        radius: 0
-                        color: prevArea.containsMouse ? Theme.blue : Theme.text
+                        radius: Theme.radius
+                        color: "transparent"
 
-                        Image {
+                        ButtonSurface {
+                            anchors.fill: parent
+                            radius: parent.radius
+                            hovered: prevArea.containsMouse
+                            restingColor: Theme.surface0
+                            accentColor: Theme.blue
+                        }
+
+                        Text {
                             anchors.centerIn: parent
-                            width: 14
-                            height: 14
-                            source: "file://" + Quickshell.env("HOME") + "/.config/quickshell/next.svg"
-                            rotation: 180
-                            fillMode: Image.PreserveAspectFit
-                            smooth: true
+                            text: "󰒮"
+                            font.family: Theme.fontMono
+                            font.pixelSize: 15
+                            // Nerd Font glyph rather than an SVG: the icons were
+                            // images with a baked-in colour, and recolouring them
+                            // would need Qt5Compat.GraphicalEffects, which makes
+                            // the whole component fail to register (gotcha #3).
+                            // A glyph is just text, so it follows the theme.
+                            color: prevArea.containsMouse ? Theme.textOn(Theme.blue) : Theme.text
                         }
 
                         MouseArea {
@@ -129,16 +155,28 @@ PopupWindow {
                     Rectangle {
                         width: 32
                         height: 32
-                        radius: 0
-                        color: playArea.containsMouse ? Theme.blue : Theme.text
+                        radius: Theme.radius
+                        color: "transparent"
 
-                        Image {
+                        ButtonSurface {
+                            anchors.fill: parent
+                            radius: parent.radius
+                            hovered: playArea.containsMouse
+                            restingColor: Theme.surface0
+                            accentColor: Theme.blue
+                        }
+
+                        Text {
                             anchors.centerIn: parent
-                            width: 14
-                            height: 14
-                            source: root.player && root.player.isPlaying ? root.pauseIconPath : root.playIconPath
-                            fillMode: Image.PreserveAspectFit
-                            smooth: true
+                            text: root.player && root.player.isPlaying ? "󰏤" : "󰐊"
+                            font.family: Theme.fontMono
+                            font.pixelSize: 17
+                            // Nerd Font glyph rather than an SVG: the icons were
+                            // images with a baked-in colour, and recolouring them
+                            // would need Qt5Compat.GraphicalEffects, which makes
+                            // the whole component fail to register (gotcha #3).
+                            // A glyph is just text, so it follows the theme.
+                            color: playArea.containsMouse ? Theme.textOn(Theme.blue) : Theme.text
                         }
 
                         MouseArea {
@@ -159,16 +197,28 @@ PopupWindow {
                     Rectangle {
                         width: 28
                         height: 28
-                        radius: 0
-                        color: nextArea.containsMouse ? Theme.blue : Theme.text
+                        radius: Theme.radius
+                        color: "transparent"
 
-                        Image {
+                        ButtonSurface {
+                            anchors.fill: parent
+                            radius: parent.radius
+                            hovered: nextArea.containsMouse
+                            restingColor: Theme.surface0
+                            accentColor: Theme.blue
+                        }
+
+                        Text {
                             anchors.centerIn: parent
-                            width: 14
-                            height: 14
-                            source: "file://" + Quickshell.env("HOME") + "/.config/quickshell/next.svg"
-                            fillMode: Image.PreserveAspectFit
-                            smooth: true
+                            text: "󰒭"
+                            font.family: Theme.fontMono
+                            font.pixelSize: 15
+                            // Nerd Font glyph rather than an SVG: the icons were
+                            // images with a baked-in colour, and recolouring them
+                            // would need Qt5Compat.GraphicalEffects, which makes
+                            // the whole component fail to register (gotcha #3).
+                            // A glyph is just text, so it follows the theme.
+                            color: nextArea.containsMouse ? Theme.textOn(Theme.blue) : Theme.text
                         }
 
                         MouseArea {
@@ -230,14 +280,18 @@ PopupWindow {
             }
 
             // ---------------- İlerleme çubuğu ----------------
+            //
+            // Eskiden METİN olarak çiziliyordu: "█" ve "░" gliflerini tek
+            // renkte basıp dolu/boş ayrımını glif farkına bırakıyordu. Koyu
+            // temada işe yarıyordu; açık palette iki glif de koyu çıkınca
+            // çubuk tek düz şeride dönüştü. Artık iki dikdörtgen — renk
+            // farkı temadan geliyor, glif şansına değil.
             Item {
                 id: sliderArea
 
-                property real ratio: (root.player && root.player.length > 0) ? Math.min(1, Math.max(0, root.player.position / root.player.length)) : 0
-                property int barLength: 40
-                property int filledCount: Math.round(barLength * ratio)
-                property int emptyCount: barLength - filledCount
-                property string progressBar: "█".repeat(filledCount) + "░".repeat(emptyCount)
+                readonly property real ratio: (root.player && root.player.length > 0)
+                    ? Math.min(1, Math.max(0, root.player.position / root.player.length))
+                    : 0
 
                 anchors.top: mainRow.bottom
                 anchors.topMargin: 12
@@ -245,28 +299,29 @@ PopupWindow {
                 anchors.right: parent.right
                 height: 16
 
-                Text {
-                    id: progressText
+                Rectangle {
+                    id: track
 
-                    anchors.centerIn: parent
-                    text: sliderArea.progressBar
-                    color: Theme.text
-                    font.family: Theme.fontMono
-                    font.weight: Theme.fontWeight
-                    font.pixelSize: 10
-                    font.bold: true
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    height: 6
+                    radius: Theme.radiusUpTo(6)
+                    color: Theme.surface1
+
+                    Rectangle {
+                        width: track.width * sliderArea.ratio
+                        height: parent.height
+                        radius: parent.radius
+                        color: Theme.mauve
+                    }
                 }
 
                 MouseArea {
                     function seekTo(mouseX) {
-                        let barWidth = progressText.paintedWidth;
-                        let barStart = (parent.width - barWidth) / 2;
-                        // Mouse'un gerçek bar üzerindeki konumu
-                        let positionInBar = mouseX - barStart;
-                        // 0 - 1 arasına sıkıştır
-                        let ratio = Math.max(0, Math.min(1, positionInBar / barWidth));
+                        // The track spans the row, so the mouse position maps
+                        // straight onto it — no centring offset to undo.
+                        let ratio = Math.max(0, Math.min(1, mouseX / track.width));
                         root.player.position = ratio * root.player.length;
                     }
 

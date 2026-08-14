@@ -1,6 +1,6 @@
 -- File: lua/plugins/colorscheme.lua
 --
--- Colors come from the system palette (~/.config/quickshell/palettes.json) via
+-- Colors come from the system config (~/.config/quickshell/lemonrice.json) via
 -- colors/lemon.lua, and follow the theme picker live: the two files are
 -- watched, so Super+Ctrl+Z restyles every open nvim without a restart, the
 -- same way it restyles the bar, kitty and dunst.
@@ -64,7 +64,7 @@ return {
           vim.g.lemon_theme_override = nil
         else
           if not Palette.themes()[name] then
-            vim.notify("no theme named '" .. name .. "' in palettes.json", vim.log.levels.ERROR)
+            vim.notify("no theme named '" .. name .. "' in lemonrice.json", vim.log.levels.ERROR)
             return
           end
           vim.g.lemon_theme_override = name
@@ -73,7 +73,7 @@ return {
         vim.notify("theme: " .. (vim.g.lemon_palette and vim.g.lemon_palette.label or "?"))
       end, {
         nargs = "?",
-        desc = "Pin a palettes.json theme (no argument follows the system theme)",
+        desc = "Pin a lemonrice.json theme (no argument follows the system theme)",
         complete = function(lead)
           return vim.tbl_filter(function(n)
             return n:find(lead, 1, true) == 1
@@ -93,8 +93,9 @@ return {
         apply()
       end
 
-      watch(Palette.state_path, follow)
-      watch(Palette.palettes_path, apply)
+      -- One file now, so one watcher. `follow` respects a :LemonTheme pin;
+      -- the palettes and the active theme arriving together is the same event.
+      watch(Palette.config_path, follow)
     end,
   },
 
