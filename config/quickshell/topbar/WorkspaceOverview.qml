@@ -5,7 +5,7 @@ import Quickshell.Widgets
 import Quickshell.Io
 import Quickshell.Wayland
 
-// Workspace overview — Alt+Ctrl+Tab.
+// Workspace overview — Super+Tab.
 //
 // Drops down from the top edge, out of the bar's workspace boxes, and shows
 // every workspace side by side with the windows on it. Things you can do here
@@ -46,8 +46,13 @@ PanelWindow {
 
     /// Address of the window being dragged, "" when nothing is.
     property string dragAddress: ""
+    /// Set instead of `dragAddress` when a whole workspace is being dragged by
+    /// its header — every window on it travels together.
+    property int dragWholeWorkspace: -1
     /// Workspace the drag started on, so a drop back onto it is a no-op.
     property int dragSourceWorkspace: -1
+
+    readonly property bool dragging: root.dragAddress !== "" || root.dragWholeWorkspace >= 0
     /// Where inside the card the cursor grabbed it, in grid coordinates.
     property point dragGrab: Qt.point(0, 0)
 
@@ -120,7 +125,7 @@ PanelWindow {
     Component.onCompleted: root.syncColumns()
 
     function syncColumns() {
-        if (root.dragAddress !== "")
+        if (root.dragging)
             return
         root.columns = root.liveColumns
     }
@@ -278,7 +283,31 @@ PanelWindow {
         root.close()
     }
 
+    function focusWorkspace(workspaceId) {
+        Quickshell.execDetached([root.dispatch, "dispatch",
+            "hl.dsp.focus({ workspace = " + workspaceId + " })"])
+        root.close()
+    }
+
     // ---------------- Drag ----------------
+
+    /// Every window on a workspace, moved one dispatch at a time — Hyprland has
+    /// no "empty this workspace into that one" dispatcher. Dropped on a number
+    /// that does not exist yet this is a rename in everything but name: the
+    /// workspace is emptied, Hyprland folds it up, and the same windows are
+    /// sitting on the new number.
+    function moveWorkspace(sourceId, targetId) {
+        const column = root.columns.find(c => c.id === sourceId)
+        if (!column || !column.ws || !column.ws.toplevels)
+            return
+
+        const windows = column.ws.toplevels.values
+        for (let i = 0; i < windows.length; i++) {
+            const address = root.addressOf(windows[i])
+            if (address !== "")
+                root.moveWindow(address, targetId)
+        }
+    }
 
     function beginDrag(item, address, workspaceId, appId, title, origin) {
         const at = item.mapToItem(grid, 0, 0)
@@ -300,8 +329,25 @@ PanelWindow {
         root.updateDrag(origin)
     }
 
+    /// The same drag, picked up by a column's header instead of a card.
+    function beginWorkspaceDrag(item, workspaceId, windowCount, origin) {
+        const at = item.mapToItem(grid, 0, 0)
+
+        ghost.width = 176
+        ghost.height = 44
+        ghost.appId = ""
+        ghost.title = "workspace " + workspaceId + " · "
+                    + windowCount + (windowCount === 1 ? " window" : " windows")
+
+        root.dragGrab = Qt.point((origin.x - at.x) / Math.max(1, item.width) * ghost.width,
+                                 (origin.y - at.y) / Math.max(1, item.height) * ghost.height)
+        root.dragSourceWorkspace = workspaceId
+        root.dragWholeWorkspace = workspaceId
+        root.updateDrag(origin)
+    }
+
     function updateDrag(point) {
-        if (root.dragAddress === "")
+        if (!root.dragging)
             return
         ghost.x = point.x - root.dragGrab.x
         ghost.y = point.y - root.dragGrab.y
@@ -314,9 +360,10 @@ PanelWindow {
     }
 
     function endDrag(point) {
-        if (root.dragAddress === "")
+        if (!root.dragging)
             return
         const address = root.dragAddress
+        const whole = root.dragWholeWorkspace
         const source = root.dragSourceWorkspace
         const target = root.dropTargetAt(point.x, point.y)
 
@@ -325,14 +372,19 @@ PanelWindow {
         // workspace it came from: also nothing — moving a window to the
         // workspace it is already on is a real move to Hyprland and used to
         // yank the view across with it.
-        if (target.ws >= 0 && target.ws !== source)
-            root.moveWindow(address, target.ws)
+        if (target.ws >= 0 && target.ws !== source) {
+            if (whole >= 0)
+                root.moveWorkspace(whole, target.ws)
+            else
+                root.moveWindow(address, target.ws)
+        }
 
         root.cancelDrag()
     }
 
     function cancelDrag() {
         root.dragAddress = ""
+        root.dragWholeWorkspace = -1
         root.dragSourceWorkspace = -1
         root.hoverWorkspace = -1
         root.hoverIsGap = false
@@ -439,8 +491,16 @@ PanelWindow {
                     required property var modelData
 
                     readonly property var toplevels: modelData.ws ? modelData.ws.toplevels : null
-                    readonly property int windowCount: column.toplevels ? column.toplevels.values.length : 0
+                    /// Pushed in by the Repeater below, not read from
+                    /// `toplevels.values.length` — that length does not tell
+                    /// anything when it changes, so a window arriving on a
+                    /// workspace left the card sizes computed from the old count
+                    /// until something else forced a rebuild (visiting the
+                    /// workspace did it, which is why it looked like it fixed
+                    /// itself a moment later).
+                    property int windowCount: 0
                     readonly property bool isTarget: root.hoverWorkspace === modelData.id && !root.hoverIsGap
+                    readonly property bool headerDragging: root.dragWholeWorkspace === modelData.id
 
                     /// Cards tile the space under the header, so a workspace
                     /// with four windows on it takes up exactly as much room as
@@ -496,12 +556,14 @@ PanelWindow {
                         text: column.modelData.spare ? "+ " + column.modelData.name
                                                      : column.modelData.name
                         color: {
+                            if (column.headerDragging)
+                                return Theme.mauve
                             if (column.modelData.spare)
                                 return Theme.overlay0
                             return column.modelData.active ? Theme.mauve : Theme.text
                         }
                         font.pixelSize: 13
-                        font.bold: column.modelData.active
+                        font.bold: column.modelData.active || column.headerDragging
                     }
 
                     Text {
@@ -515,6 +577,70 @@ PanelWindow {
                         font.pixelSize: 9
                     }
 
+                    // The number is a handle. Dragging it takes the whole
+                    // workspace along — every window on it lands on whatever
+                    // the drop hits, including a number that does not exist
+                    // yet, which is how a workspace gets moved rather than
+                    // emptied one card at a time. A plain click goes there.
+                    MouseArea {
+                        id: headerArea
+
+                        anchors.top: parent.top
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        height: root.headerHeight
+                        hoverEnabled: true
+                        preventStealing: true
+                        enabled: !column.modelData.spare
+                        cursorShape: column.windowCount > 0 ? (column.headerDragging ? Qt.ClosedHandCursor
+                                                                                     : Qt.PointingHandCursor)
+                                                            : Qt.PointingHandCursor
+
+                        property point pressPoint
+                        property bool armed: false
+                        property bool moved: false
+
+                        onPressed: mouse => {
+                            headerArea.pressPoint = column.mapToItem(grid, mouse.x, mouse.y)
+                            headerArea.armed = true
+                            headerArea.moved = false
+                        }
+
+                        onPositionChanged: mouse => {
+                            if (!headerArea.armed || column.windowCount === 0)
+                                return
+                            const p = column.mapToItem(grid, mouse.x, mouse.y)
+                            if (!headerArea.moved) {
+                                const dx = p.x - headerArea.pressPoint.x
+                                const dy = p.y - headerArea.pressPoint.y
+                                if (dx * dx + dy * dy < 36)
+                                    return
+                                headerArea.moved = true
+                                root.beginWorkspaceDrag(column, column.modelData.id,
+                                                        column.windowCount, headerArea.pressPoint)
+                            }
+                            root.updateDrag(p)
+                        }
+
+                        onReleased: mouse => {
+                            headerArea.armed = false
+                            if (headerArea.moved)
+                                root.endDrag(column.mapToItem(grid, mouse.x, mouse.y))
+                        }
+
+                        onCanceled: {
+                            headerArea.armed = false
+                            if (headerArea.moved)
+                                root.cancelDrag()
+                            headerArea.moved = false
+                        }
+
+                        onClicked: {
+                            if (!headerArea.moved)
+                                root.focusWorkspace(column.modelData.id)
+                        }
+                    }
+
                     // Cards
                     Grid {
                         id: cardGrid
@@ -526,7 +652,12 @@ PanelWindow {
                         spacing: 6
 
                         Repeater {
+                            id: cardRepeater
+
                             model: column.toplevels
+
+                            onCountChanged: column.windowCount = cardRepeater.count
+                            Component.onCompleted: column.windowCount = cardRepeater.count
 
                             delegate: Item {
                                 id: card
@@ -547,7 +678,8 @@ PanelWindow {
                                 /// the icon and drops the text; the preview
                                 /// stays whatever the size.
                                 readonly property bool showTitle: column.cardWidth >= 118
-                                readonly property real labelHeight: Math.min(20, Math.max(13, column.cardHeight * 0.2))
+                                readonly property int labelHeight: column.cardHeight >= 60 ? 18 : 14
+                                readonly property int iconSize: card.labelHeight - 4
 
                                 width: column.cardWidth
                                 height: column.cardHeight
@@ -603,6 +735,31 @@ PanelWindow {
                                                 preview.captureFrame()
                                         }
 
+                                        // A window that gains or loses a
+                                        // neighbour is re-tiled by Hyprland, so
+                                        // the frame taken when the overview
+                                        // opened is now the wrong shape. The
+                                        // delay is for the compositor to finish
+                                        // laying the workspace out again.
+                                        Timer {
+                                            id: recapture
+
+                                            interval: 160
+                                            onTriggered: {
+                                                if (preview.captureSource)
+                                                    preview.captureFrame()
+                                            }
+                                        }
+
+                                        Connections {
+                                            target: column
+
+                                            function onWindowCountChanged() {
+                                                if (root.shown)
+                                                    recapture.restart()
+                                            }
+                                        }
+
                                         ScreencopyView {
                                             id: preview
 
@@ -632,8 +789,9 @@ PanelWindow {
                                         // — the icon stands in for the window.
                                         IconImage {
                                             anchors.centerIn: parent
-                                            width: Math.min(32, previewBox.height - 8)
-                                            height: width
+                                            implicitSize: Math.min(32, card.height - card.labelHeight - 8)
+                                            width: implicitSize
+                                            height: implicitSize
                                             source: IconResolver.iconForApp(card.appId)
                                             visible: !preview.visible && status === Image.Ready
                                         }
@@ -654,16 +812,27 @@ PanelWindow {
                                             opacity: 0.92
                                         }
 
+                                        // Left of the title, or alone in the
+                                        // middle when the card is too narrow for
+                                        // one. Moved with `x` rather than by
+                                        // swapping `anchors.left` for
+                                        // `anchors.horizontalCenter`: an
+                                        // IconImage whose anchors change under it
+                                        // loses its width binding and comes back
+                                        // at the icon file's own size — that is
+                                        // how a 72px cat ended up lying across a
+                                        // card (gotcha #66). Nothing here reads
+                                        // `parent.height` either, for the same
+                                        // reason.
                                         IconImage {
                                             id: cardIcon
 
-                                            anchors.left: card.showTitle ? parent.left : undefined
-                                            anchors.leftMargin: 5
-                                            anchors.horizontalCenter: card.showTitle ? undefined
-                                                                                     : parent.horizontalCenter
+                                            x: card.showTitle ? 5
+                                                              : Math.round((labelRow.width - card.iconSize) / 2)
                                             anchors.verticalCenter: parent.verticalCenter
-                                            width: Math.min(16, parent.height - 4)
-                                            height: width
+                                            implicitSize: card.iconSize
+                                            width: card.iconSize
+                                            height: card.iconSize
                                             source: IconResolver.iconForApp(card.appId)
                                             visible: source != "" && status === Image.Ready
                                         }
@@ -778,7 +947,7 @@ PanelWindow {
                                     radius: Theme.radiusUpTo(18)
                                     color: closeArea.containsMouse ? Theme.red : Theme.surface1
                                     opacity: (cardArea.containsMouse || closeArea.containsMouse)
-                                             && root.dragAddress === "" ? 1 : 0
+                                             && !root.dragging ? 1 : 0
                                     visible: opacity > 0 && card.height >= 26
                                     z: 5
 
@@ -818,7 +987,7 @@ PanelWindow {
             Rectangle {
                 id: gapMarker
 
-                visible: root.dragAddress !== "" && root.hoverIsGap
+                visible: root.dragging && root.hoverIsGap
                 z: 150
                 x: root.hoverGapX - width / 2
                 y: root.hoverGapY
@@ -851,7 +1020,7 @@ PanelWindow {
                 property string appId: ""
                 property string title: ""
 
-                visible: root.dragAddress !== ""
+                visible: root.dragging
                 z: 200
                 radius: Theme.radius
                 color: Theme.surface0

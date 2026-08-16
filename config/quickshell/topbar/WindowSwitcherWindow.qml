@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Widgets
@@ -116,6 +117,22 @@ PanelWindow {
         return n
     }
 
+    // The list is the service's — MRU order is the whole point of it — but a
+    // preview needs the wayland handle, and only Hyprland's own toplevel
+    // objects carry one. Matched on address, which both sides have.
+    function toplevelFor(address) {
+        const want = String(address || "").replace(/^0x/, "")
+        if (want === "")
+            return null
+
+        const list = Hyprland.toplevels.values
+        for (let i = 0; i < list.length; i++) {
+            if (String(list[i].address) === want)
+                return list[i]
+        }
+        return null
+    }
+
     readonly property string focusScript: Quickshell.env("HOME") + "/.local/bin/qs-focus-keep-cursor"
 
     function focusWindow(address) {
@@ -226,10 +243,12 @@ PanelWindow {
     Rectangle {
         id: panel
 
-        readonly property int cardWidth: 112
-        readonly property int cardHeight: 108
+        readonly property int cardWidth: 168
+        readonly property int cardHeight: 118
         readonly property int cardSpacing: 8
         readonly property int padding: 16
+        /// Icon and app name under the preview.
+        readonly property int labelHeight: 22
 
         // DİKKAT: gizliyken PanelWindow width/height'ı gerçek değerini
         // vermiyor (gotcha #11/#20). Ölçüleri ekrandan al.
@@ -291,75 +310,147 @@ PanelWindow {
                 required property int index
 
                 readonly property bool current: card.index === root.selectedIndex
+                readonly property var toplevel: root.toplevelFor(card.modelData.address)
 
                 width: panel.cardWidth
                 height: panel.cardHeight
 
                 Rectangle {
+                    id: cardSurface
+
                     anchors.fill: parent
                     color: card.current ? Theme.selected
                                         : (cardArea.containsMouse ? Theme.hover : Theme.mantle)
                     border.color: card.current ? Theme.blue : "transparent"
                     border.width: card.current ? 2 : 0
                     radius: Theme.radius
+                    clip: true
 
                     Behavior on color {
                         ColorAnimation { duration: 90 }
                     }
-                }
 
-                // Uygulama ikonu (bulunamazsa harf döşemesi)
-                Item {
-                    id: iconBox
-
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    anchors.top: parent.top
-                    anchors.topMargin: 14
-                    width: 48
-                    height: 48
-
-                    IconImage {
-                        id: cardIcon
+                    // ---- preview ----
+                    //
+                    // Same capture path as the workspace overview: one frame per
+                    // opening off the toplevel's wayland handle, which works for
+                    // windows on workspaces that are not on screen. The icon
+                    // stands in until the frame lands, and for anything with no
+                    // handle at all.
+                    Item {
+                        id: previewBox
 
                         anchors.fill: parent
-                        source: IconResolver.iconForApp(card.modelData.appId)
-                        visible: source != "" && status === Image.Ready
-                    }
+                        anchors.bottomMargin: panel.labelHeight
+                        clip: true
 
-                    Rectangle {
-                        anchors.fill: parent
-                        visible: !cardIcon.visible
-                        color: Theme.surface1
-                        radius: Theme.radius
+                        Connections {
+                            target: root
 
-                        Text {
-                            anchors.centerIn: parent
-                            text: {
-                                const n = root.prettyName(card.modelData.appId) || card.modelData.title || "?"
-                                return (n.charAt(0) || "?").toUpperCase()
+                            function onShownChanged() {
+                                if (root.shown && preview.captureSource)
+                                    preview.captureFrame()
                             }
-                            color: Theme.text
-                            font.pixelSize: 22
-                            font.bold: true
+                        }
+
+                        Component.onCompleted: {
+                            if (root.shown && preview.captureSource)
+                                preview.captureFrame()
+                        }
+
+                        ScreencopyView {
+                            id: preview
+
+                            captureSource: card.toplevel ? card.toplevel.wayland : null
+                            live: false
+                            paintCursor: false
+
+                            readonly property real fit: {
+                                const w = preview.sourceSize.width
+                                const h = preview.sourceSize.height
+                                if (w <= 0 || h <= 0)
+                                    return 0
+                                return Math.min(previewBox.width / w, previewBox.height / h)
+                            }
+
+                            anchors.centerIn: parent
+                            width: preview.sourceSize.width * preview.fit
+                            height: preview.sourceSize.height * preview.fit
+                            visible: preview.hasContent && preview.fit > 0
+                        }
+
+                        IconImage {
+                            id: fallbackIcon
+
+                            anchors.centerIn: parent
+                            implicitSize: 40
+                            width: 40
+                            height: 40
+                            source: IconResolver.iconForApp(card.modelData.appId)
+                            visible: !preview.visible && status === Image.Ready
+                        }
+
+                        // Harf döşemesi — ikon da yoksa
+                        Rectangle {
+                            anchors.centerIn: parent
+                            width: 40
+                            height: 40
+                            visible: !preview.visible && !fallbackIcon.visible
+                            color: Theme.surface1
+                            radius: Theme.radius
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: {
+                                    const n = root.prettyName(card.modelData.appId) || card.modelData.title || "?"
+                                    return (n.charAt(0) || "?").toUpperCase()
+                                }
+                                color: Theme.text
+                                font.pixelSize: 20
+                                font.bold: true
+                            }
                         }
                     }
-                }
 
-                // Uygulama adı
-                Text {
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.leftMargin: 8
-                    anchors.rightMargin: 8
-                    anchors.top: iconBox.bottom
-                    anchors.topMargin: 10
-                    horizontalAlignment: Text.AlignHCenter
-                    text: root.prettyName(card.modelData.appId)
-                    color: card.current ? Theme.text : Theme.subtext0
-                    font.pixelSize: 11
-                    font.bold: card.current
-                    elide: Text.ElideRight
-                    textFormat: Text.PlainText
+                    // ---- uygulama adı ----
+                    Item {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        height: panel.labelHeight
+
+                        Rectangle {
+                            anchors.fill: parent
+                            color: Theme.mantle
+                            opacity: card.current ? 0.75 : 0.92
+                        }
+
+                        IconImage {
+                            id: cardIcon
+
+                            x: 6
+                            anchors.verticalCenter: parent.verticalCenter
+                            implicitSize: 14
+                            width: 14
+                            height: 14
+                            source: IconResolver.iconForApp(card.modelData.appId)
+                            visible: source != "" && status === Image.Ready
+                        }
+
+                        Text {
+                            anchors.left: parent.left
+                            anchors.leftMargin: cardIcon.visible ? 25 : 6
+                            anchors.right: parent.right
+                            anchors.rightMargin: 6
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: root.prettyName(card.modelData.appId)
+                            color: card.current ? Theme.text : Theme.subtext0
+                            font.pixelSize: 11
+                            font.bold: card.current
+                            elide: Text.ElideRight
+                            textFormat: Text.PlainText
+                        }
+                    }
                 }
 
                 // Pencerenin çalışma alanı — hangi workspace'e gidileceği
@@ -372,6 +463,7 @@ PanelWindow {
                     height: 16
                     color: card.current ? Theme.blue : Theme.surface1
                     radius: Theme.radiusUpTo(16)
+                    z: 2
 
                     Text {
                         id: wsLabel

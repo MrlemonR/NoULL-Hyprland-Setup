@@ -39,8 +39,10 @@ hl.bind("ALT + Tab",         hl.dsp.exec_cmd(altTab .. "next"),   { repeating = 
 hl.bind("ALT + SHIFT + Tab", hl.dsp.exec_cmd(altTab .. "prev"),   { repeating = true })
 
 -- Workspace overview. Drops out of the bar and shows every workspace side by
--- side; drag a card to move a window, or press the X on one to close it.
-hl.bind("ALT + CONTROL + Tab", hl.dsp.exec_cmd("qs -c topbar ipc call overview toggle"))
+-- side; drag a card to move a window, drop it between two columns to put it on
+-- the free number between them, drag a workspace's own number to take all of it
+-- at once, or press the X on a card to close that window.
+hl.bind(mainMod .. "+ Tab", hl.dsp.exec_cmd("qs -c topbar ipc call overview toggle"))
 hl.bind("ALT + Alt_L",       hl.dsp.exec_cmd(altTab .. "commit"), { release = true })
 hl.bind("ALT + Alt_R",       hl.dsp.exec_cmd(altTab .. "commit"), { release = true })
 
