@@ -116,7 +116,13 @@ PanelWindow {
         readonly property int rowHeight: 74
 
         anchors.horizontalCenter: parent.horizontalCenter
-        y: root.height - height - root.bottomGap
+        // Slides up from below, like the launcher and the settings screen.
+        // A hidden PanelWindow reports the wrong height for the first few
+        // frames (gotcha #20), so the animation moves a separate offset and
+        // leaves this binding alone rather than animating `y` directly.
+        y: root.height - height - root.bottomGap + panel.offset
+
+        property real offset: 0
         width: 560
         height: 62 + tabRow.height + listArea.height + 12
         color: Theme.panelColor
@@ -133,8 +139,6 @@ PanelWindow {
         }
 
         opacity: 0
-        scale: 0.94
-        transformOrigin: Item.Center
 
         // ---------------- Arama ----------------
         Item {
@@ -542,7 +546,7 @@ PanelWindow {
 
         NumberAnimation { target: backdrop; property: "opacity"; to: Theme.backdropOpacity(0.5); duration: 180; easing.type: Easing.OutQuad }
         NumberAnimation { target: panel; property: "opacity"; to: 1; duration: 160; easing.type: Easing.OutQuad }
-        NumberAnimation { target: panel; property: "scale"; to: 1; duration: 260; easing.type: Easing.OutBack; easing.overshoot: 0.9 }
+        NumberAnimation { target: panel; property: "offset"; from: 48; to: 0; duration: 280; easing.type: Easing.OutCubic }
     }
 
     SequentialAnimation {
@@ -551,7 +555,7 @@ PanelWindow {
         ParallelAnimation {
             NumberAnimation { target: backdrop; property: "opacity"; to: Theme.backdropOpacity(0); duration: 130; easing.type: Easing.InQuad }
             NumberAnimation { target: panel; property: "opacity"; to: 0; duration: 110; easing.type: Easing.InQuad }
-            NumberAnimation { target: panel; property: "scale"; to: 0.94; duration: 130; easing.type: Easing.InQuad }
+            NumberAnimation { target: panel; property: "offset"; to: 48; duration: 150; easing.type: Easing.InCubic }
         }
 
         ScriptAction {

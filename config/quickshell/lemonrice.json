@@ -1,5 +1,5 @@
 {
-  "theme": "frutiger-aero",
+  "theme": "monochrome",
   "font": {
     "mono": "MonaspiceAr Nerd Font",
     "ui": "MonaspiceAr Nerd Font",
@@ -9,17 +9,17 @@
   "settings": {
     "animations": true,
     "animationSpeed": 1,
-    "blur": false,
+    "blur": true,
     "blurAmount": 2,
-    "aeroGlass": true,
+    "aeroGlass": false,
     "shadows": false,
-    "transparency": false,
+    "transparency": true,
     "transparencyAmount": 0.8,
     "gaps": true,
     "gapsAmount": 8
   },
   "bar": {
-    "floating": true,
+    "floating": false,
     "transparent": false,
     "barOpacity": 0.3,
     "widgets": {
@@ -32,7 +32,8 @@
       "stats": true,
       "volume": true,
       "tray": true,
-      "notifications": true
+      "notifications": true,
+      "runcat": true
     }
   },
   "palettes": {
@@ -218,6 +219,72 @@
         "panelOpacity": 0.92,
         "windowRounding": 10,
         "notifyRadius": 12
+      }
+    }
+  },
+  "prefabs": {
+    "frutiger-aero": {
+      "settings": {
+        "animations": true,
+        "animationSpeed": 1,
+        "blur": true,
+        "blurAmount": 2,
+        "aeroGlass": true,
+        "shadows": false,
+        "transparency": true,
+        "transparencyAmount": 0.8,
+        "gaps": true,
+        "gapsAmount": 8
+      },
+      "bar": {
+        "floating": true,
+        "transparent": false,
+        "barOpacity": 0.3,
+        "widgets": {
+          "date": true,
+          "clock": true,
+          "focusedApp": true,
+          "workspaces": true,
+          "cava": true,
+          "media": true,
+          "stats": true,
+          "volume": true,
+          "tray": true,
+          "notifications": true,
+          "runcat": true
+        }
+      }
+    },
+    "monochrome": {
+      "settings": {
+        "animations": true,
+        "animationSpeed": 1,
+        "blur": true,
+        "blurAmount": 2,
+        "aeroGlass": false,
+        "shadows": false,
+        "transparency": true,
+        "transparencyAmount": 0.8,
+        "gaps": true,
+        "gapsAmount": 8
+      },
+      "bar": {
+        "floating": false,
+        "transparent": false,
+        "barOpacity": 0.3,
+        "widgets": {
+          "date": true,
+          "clock": true,
+          "focusedApp": true,
+          "workspaces": true,
+          "cava": true,
+          "media": true,
+          "stats": true,
+          "volume": true,
+          "tray": true,
+          "notifications": true,
+          "runcat": true
+        }
       }
     }
   }

@@ -13,6 +13,10 @@ dosya, tek erişim noktası.
     qs-config palette [<tema>]       -> paletin tamamı JSON
     qs-config style [<tema>]         -> paletin style bloğu
     qs-config env [<tema>]           -> BASE=… MAUVE=… (bash: eval "$(...)")
+    qs-config prefab-save [<tema>]   -> şu anki ayarları o temaya kaydet
+    qs-config prefab-clear [<tema>]  -> kaydı sil
+    qs-config prefab-apply [<tema>]  -> kaydı geri yükle (qs-theme çağırıyor)
+    qs-config prefab-has <tema>      -> on/off
 
 Tema adı verilmezse etkin tema kullanılıyor.
 
@@ -82,6 +86,37 @@ def palette_of(data, name=None):
     if found is None:
         sys.exit(f"qs-config: '{name}' diye bir tema yok")
     return found
+
+
+# ── Prefab ─────────────────────────────────────────────────────────────────
+# Tema başına kaydedilmiş görünüm. "frutiger-aero'da bar float olsun,
+# monochrome'da yapışık" demenin yolu: bir temadayken her şeyi ayarlayıp
+# prefab-save demek, sonra o temaya her dönüşte kaydın geri gelmesi.
+#
+# Yalnızca `settings` ve `bar` kaydediliyor — paletin kendisi zaten temanın
+# tanımı, fontu ise tema başına değil kullanıcı başına bir tercih.
+PREFAB_SECTIONS = ("settings", "bar")
+
+
+def prefab_save(data, theme):
+    store = data.setdefault("prefabs", {})
+    store[theme] = {k: json.loads(json.dumps(data.get(k, {}))) for k in PREFAB_SECTIONS}
+    return data
+
+
+def prefab_apply(data, theme):
+    saved = data.get("prefabs", {}).get(theme)
+    if not saved:
+        return data, False
+    for section in PREFAB_SECTIONS:
+        if isinstance(saved.get(section), dict):
+            # Üzerine yazmak yerine birleştiriliyor: kaydın alındığı günden
+            # sonra eklenen bir anahtar varsa onu silmemek gerek, yoksa eski
+            # bir prefab yeni bir ayarı geri alırdı.
+            merged = data.get(section, {})
+            merged.update(saved[section])
+            data[section] = merged
+    return data, True
 
 
 def coerce(text):
@@ -197,6 +232,39 @@ def main():
 
     if command == "theme":
         print(active_theme(data))
+        return
+
+    if command.startswith("prefab-"):
+        theme = args[1] if len(args) > 1 else active_theme(data)
+        action = command[len("prefab-"):]
+
+        if action == "has":
+            print("on" if theme in data.get("prefabs", {}) else "off")
+            return
+
+        lock_path = PATH + ".lock"
+        with open(lock_path, "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            fresh = load()
+
+            if action == "save":
+                fresh = prefab_save(fresh, theme)
+                message = f"saved: {theme}"
+            elif action == "clear":
+                fresh.get("prefabs", {}).pop(theme, None)
+                message = f"cleared: {theme}"
+            elif action == "apply":
+                fresh, found = prefab_apply(fresh, theme)
+                if not found:
+                    print(f"no prefab for {theme}")
+                    return
+                message = f"applied: {theme}"
+            else:
+                sys.exit(f"qs-config: bilinmeyen prefab komutu '{action}'")
+
+            with open(PATH, "w", encoding="utf-8") as handle:
+                handle.write(json.dumps(fresh, indent=2, ensure_ascii=False) + "\n")
+        print(message)
         return
 
     sys.exit(f"qs-config: bilinmeyen komut '{command}'")

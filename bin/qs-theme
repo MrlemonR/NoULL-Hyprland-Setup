@@ -12,8 +12,8 @@
 #   kitty      : ~/.config/kitty/current-theme.conf + SIGUSR1 ile yeniden yükleme
 #   gtk 3/4    : settings.ini + gsettings ile tema adı (tema kuruluysa)
 #   qt/kde     : ~/.config/Kvantum/kvantum.kvconfig (tema kuruluysa)
-#   nvim       : colors/lemon.lua palettes.json + theme.txt'i kendi okuyor;
-#                buraya sadece yedek olarak lua/qs-theme.lua yazılıyor
+#   nvim       : colors/lemon.lua lemonrice.json'u kendi okuyor; buraya
+#                sadece yedek olarak lua/qs-theme.lua yazılıyor
 #   hyprland   : ~/.config/hypr/config/theme.lua    (pencere kenarlık renkleri,
 #                hyprctl ile canlı olarak da uygulanıyor)
 
@@ -71,6 +71,14 @@ AERO_GLASS="$("$BIN/qs-config" get settings.aeroGlass)"
 "$BIN/qs-config" set theme "$THEME"
 echo "quickshell: $THEME"
 
+# Per-theme saved look. Restored BEFORE the helpers run, so anything that
+# reads a setting (effects.lua through hyprctl reload, the bar through its
+# FileView) sees the theme's own values rather than the outgoing theme's.
+if [[ "$("$BIN/qs-config" prefab-has "$THEME")" == "on" ]]; then
+    "$BIN/qs-config" prefab-apply "$THEME" >/dev/null
+    echo "prefab: $THEME restored"
+fi
+
 # ============================================================
 # 2. kitty
 # ============================================================
@@ -127,19 +135,6 @@ EOF
     # edilen dosya yoksa kitty hiç açılmıyor.
     : > "$HOME/.config/kitty/gloss.conf"
 
-    KITTY_GLOSS="$HOME/.config/kitty/gloss.conf"
-    if [[ "$AERO_GLASS" == "on" && -f "$GLOSS_PNG" ]]; then
-        cat > "$KITTY_GLOSS" <<EOF
-# qs-theme tarafından üretildi — Aero Glass açıkken
-background_image $GLOSS_PNG
-background_image_layout scaled
-background_tint 0.85
-EOF
-    else
-        # Cam kapalıyken dosya BOŞ kalıyor, silinmiyor: kitty.conf onu
-        # include ediyor ve include edilen dosya yoksa kitty hata veriyor.
-        : > "$KITTY_GLOSS"
-    fi
     # DİKKAT: kitty'nin otomatik tema özelliği var — config dizininde
     # dark-theme.auto.conf varsa sistem koyu moddayken onu uygulayıp
     # current-theme.conf'u eziyor. Bu yüzden aynı içeriği oraya da yazıyoruz.
@@ -177,10 +172,9 @@ done
 # ============================================================
 # 8. nvim
 #
-# Nothing has to be pushed here: colors/lemon.lua reads palettes.json and
-# theme.txt directly and watches both, so running editors restyle themselves.
-# The file below is only a backstop for the case where theme.txt cannot be
-# read, and a record of what the last switch was.
+# Nothing has to be pushed here: colors/lemon.lua reads lemonrice.json itself
+# and watches it, so running editors restyle themselves. The file below is only
+# a backstop for when that file cannot be read, and a record of the last switch.
 # ============================================================
 
 NVIM_STATE="$HOME/.config/nvim/lua/qs-theme.lua"
@@ -194,7 +188,7 @@ return {
 EOF
     echo "nvim: qs-theme.lua yazıldı (colorscheme=$NVIM_SCHEME)"
 else
-    echo "nvim: theme.txt üzerinden okunacak (colorscheme=$NVIM_SCHEME)"
+    echo "nvim: lemonrice.json üzerinden okunacak (colorscheme=$NVIM_SCHEME)"
 fi
 
 # ============================================================

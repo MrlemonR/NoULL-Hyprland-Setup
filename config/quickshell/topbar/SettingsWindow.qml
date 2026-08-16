@@ -31,11 +31,17 @@ PanelWindow {
     /// alternative was a parallel model per page, kept in step by hand.
     property int cursor: 0
 
+    /// Which prefab row has its Save/Reset pair open. Only one at a time —
+    /// two open rows would make the page jump under the cursor.
+    property string expandedPrefab: ""
+
     readonly property var activeColumn: {
         if (root.page === "appearance")
             return appearancePage
         if (root.page === "topbar")
             return topbarPage
+        if (root.page === "prefab")
+            return prefabPage
         return homePage
     }
 
@@ -88,7 +94,10 @@ PanelWindow {
             row.nudge(direction)
     }
 
-    onPageChanged: root.cursor = 0
+    onPageChanged: {
+        root.cursor = 0
+        root.expandedPrefab = ""
+    }
 
     readonly property int bottomGap: 18
     readonly property int panelWidth: 560
@@ -144,6 +153,11 @@ PanelWindow {
         function topbar(): void {
             root.open()
             root.page = "topbar"
+        }
+
+        function prefab(): void {
+            root.open()
+            root.page = "prefab"
         }
     }
 
@@ -254,7 +268,7 @@ PanelWindow {
                 anchors.left: parent.left
                 anchors.leftMargin: root.page === "" ? 20 : 48
                 anchors.verticalCenter: parent.verticalCenter
-                text: root.page === "" ? "Settings" : root.page === "topbar" ? "Top Bar" : "Appearance"
+                text: root.page === "" ? "Settings" : root.page === "topbar" ? "Top Bar" : root.page === "prefab" ? "Prefab" : "Appearance"
                 color: Theme.text
                 font.pixelSize: 16
                 font.bold: true
@@ -296,6 +310,7 @@ PanelWindow {
             // +6 so the last row's track is not flush against the panel edge.
             height: 6 + (root.page === "" ? homePage.implicitHeight
                 : root.page === "topbar" ? topbarPage.implicitHeight
+                : root.page === "prefab" ? prefabPage.implicitHeight
                 : appearancePage.implicitHeight)
 
             // Home: the category grid
@@ -334,6 +349,19 @@ PanelWindow {
                     title: "Top Bar"
                     caption: BarSettings.floating ? "floating" : "docked"
                     onClicked: root.page = "topbar"
+                }
+
+                SettingsCategory {
+                    width: parent.width
+                    selected: root.cursor === rowIndex
+                    pageId: "prefab"
+                    glyph: "󰆔"
+                    title: "Prefab"
+                    caption: {
+                        const n = Object.keys(SettingsService.prefabs).length
+                        return n === 0 ? "no themes saved" : n + " saved"
+                    }
+                    onClicked: root.page = "prefab"
                 }
             }
 
@@ -585,6 +613,71 @@ PanelWindow {
                     label: "Notifications"
                     checked: BarSettings.enabled("notifications")
                     onToggled: BarSettings.toggle("notifications")
+                }
+
+                SettingsToggle {
+                    width: parent.width
+                    selected: root.cursor === rowIndex
+                    label: "Running cat"
+                    caption: "also the control centre button"
+                    checked: BarSettings.enabled("runcat")
+                    onToggled: BarSettings.toggle("runcat")
+                }
+            }
+
+            // Prefab: a saved look per theme.
+            Column {
+                id: prefabPage
+
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.leftMargin: 12
+                anchors.rightMargin: 12
+                spacing: 2
+
+                opacity: root.page === "prefab" ? 1 : 0
+                visible: opacity > 0
+                Behavior on opacity {
+                    NumberAnimation { duration: 150; easing.type: Easing.OutQuad }
+                }
+
+                Component.onCompleted: root.indexRows(prefabPage)
+
+                Text {
+                    width: parent.width
+                    padding: 8
+                    leftPadding: 18
+                    text: "Set the look you want, then save it here. Switching back to that theme restores it."
+                    color: Theme.overlay0
+                    font.pixelSize: 10
+                    wrapMode: Text.WordWrap
+                }
+
+                Repeater {
+                    model: Theme.themeNames.concat(Theme.customThemeNames)
+
+                    SettingsPrefabRow {
+                        required property var modelData
+
+                        width: prefabPage.width
+                        themeName: modelData
+                        label: Theme.labelFor(modelData)
+                        isActive: modelData === Theme.name
+                        hasPrefab: SettingsService.hasPrefab(modelData)
+                        expanded: root.expandedPrefab === modelData
+                        selected: root.cursor === rowIndex
+
+                        onToggled: root.expandedPrefab =
+                            (root.expandedPrefab === modelData) ? "" : modelData
+                        onSaveRequested: {
+                            SettingsService.savePrefab(modelData)
+                            root.expandedPrefab = ""
+                        }
+                        onClearRequested: {
+                            SettingsService.clearPrefab(modelData)
+                            root.expandedPrefab = ""
+                        }
+                    }
                 }
             }
         }

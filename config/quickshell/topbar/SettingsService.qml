@@ -122,6 +122,7 @@ Singleton {
                 const parsed = JSON.parse(raw)
                 if (parsed && typeof parsed.settings === "object")
                     root.values = parsed.settings
+                root.prefabs = (parsed && parsed.prefabs) || ({})
             } catch (e) {
                 // Leave the last good values in place; qs-settings refuses to
                 // write over a broken file, so it is a hand edit to fix.
@@ -131,6 +132,30 @@ Singleton {
 
         onFileChanged: settingsFile.reload()
     }
+
+    // ---------------- Prefabs ----------------
+    // A saved look per theme: switch to Frutiger Aero and the bar floats,
+    // switch to Monochrome and it docks — because that is how each was saved.
+    // Storage and restore both live in qs-config; this only reads and asks.
+
+    property var prefabs: ({})
+
+    function hasPrefab(theme) {
+        return root.prefabs[theme] !== undefined
+    }
+
+    /// Only the ACTIVE theme can be saved. The values being written are the
+    /// live ones, so saving them under another theme's name would record a
+    /// look that theme never had.
+    function savePrefab(theme) {
+        Quickshell.execDetached([root.configScript, "prefab-save", theme])
+    }
+
+    function clearPrefab(theme) {
+        Quickshell.execDetached([root.configScript, "prefab-clear", theme])
+    }
+
+    readonly property string configScript: Quickshell.env("HOME") + "/.local/bin/qs-config"
 
     // ---------------- Probed state ----------------
 

@@ -128,10 +128,17 @@ RowLayout {
         visible: focusedAppText.visible
     }
 
-    // The cat doubles as the control centre handle — click it for the panel
+    // The cat doubles as the control centre handle — click it for the panel.
+    //
+    // It was deliberately kept out of the widget switches for years: a switch
+    // that hides its own way back in is a trap. That objection is gone — the
+    // settings screen is Super+Z now, so the cat is no longer the only door,
+    // and turning it off can be undone from the keyboard.
     // below (see ControlCenterPopup). It keeps running either way.
     Rectangle {
         id: catContainer
+
+        visible: BarSettings.enabled("runcat")
         width: 40
         height: 30
         color: catArea.containsMouse || controlCenter.shown ? Theme.surface0 : "transparent"

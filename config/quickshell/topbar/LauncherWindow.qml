@@ -127,12 +127,10 @@ PanelWindow {
         width: implicitWidth
         height: implicitHeight
 
-        // Ekranın altına yakın dursun (Alt+Space menüsü)
+        // Sits near the bottom edge and slides up into place.
         y: root.height - height - root.bottomGap + root.slideOffset
 
         opacity: 0
-        scale: 0.94
-        transformOrigin: Item.Center
 
         onRequestClose: root.close()
     }
@@ -157,21 +155,13 @@ PanelWindow {
             easing.type: Easing.OutQuad
         }
 
-        NumberAnimation {
-            target: panel
-            property: "scale"
-            to: 1
-            duration: 260
-            easing.type: Easing.OutBack
-            easing.overshoot: 0.9
-        }
 
         NumberAnimation {
             target: root
             property: "slideOffset"
-            from: 26
+            from: 48
             to: 0
-            duration: 240
+            duration: 280
             easing.type: Easing.OutCubic
         }
     }
@@ -198,7 +188,7 @@ PanelWindow {
 
             NumberAnimation {
                 target: panel
-                property: "scale"
+                property: "offset_UNUSED"
                 to: 0.94
                 duration: 130
                 easing.type: Easing.InQuad

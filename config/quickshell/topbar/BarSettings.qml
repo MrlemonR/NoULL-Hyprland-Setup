@@ -23,7 +23,12 @@ Singleton {
     readonly property var keys: [
         "date", "clock", "focusedApp",
         "workspaces", "cava",
-        "media", "stats", "volume", "tray", "notifications"
+        "media", "stats", "volume", "tray", "notifications",
+        // The running cat. Long left out on purpose — it is the control
+        // centre's handle and a switch that hides its own way back in is a
+        // trap — but the settings screen has its own keybind now, so the cat
+        // is no longer the only door in.
+        "runcat"
     ]
 
     // How the bar itself looks, as opposed to which widgets it holds. Same

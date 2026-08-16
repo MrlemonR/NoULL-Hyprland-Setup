@@ -31,6 +31,7 @@ ShellRoot {
 
     // Alt+Tab pencere anahtarlayıcısı
     WindowSwitcherWindow {}
+    WorkspaceOverview {}
 }
 
 

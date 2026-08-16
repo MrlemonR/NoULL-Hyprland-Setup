@@ -680,26 +680,15 @@ PanelWindow {
                         NumberAnimation { duration: 180; easing.type: Easing.OutQuad }
                     }
 
-                    Tile {
-                        glyph: "󰃟"
-                        label: "Appearance"
-                        caption: SettingsService.effectsOn + "/" + SettingsService.keys.length + " on"
-                        onActivated: root.page = "appearance"
-                    }
+                    // Appearance, System and Top Bar used to live here too.
+                    // They moved to the settings screen (Super+Z) — a setting
+                    // reachable from two places is two places to keep in step
+                    // and two answers to "where do I change this". What is
+                    // left is the three things that are not settings at all:
+                    // a device, a picker and a restart.
 
-                    Tile {
-                        glyph: "󰒓"
-                        label: "System"
-                        caption: SettingsService.dnsOn ? "DNS on" : "DNS off"
-                        onActivated: root.page = "system"
-                    }
 
-                    Tile {
-                        glyph: "󱂬"
-                        label: "Top Bar"
-                        caption: BarSettings.enabled("cava") ? "cava on" : "widgets"
-                        onActivated: root.page = "topbar"
-                    }
+
 
                     Tile {
                         glyph: "󰄜"
